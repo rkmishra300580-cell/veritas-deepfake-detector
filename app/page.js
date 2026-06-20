@@ -202,17 +202,14 @@ export default function DeepfakeDetectorApp() {
       }
 
       setTimeout(() => { setResult(data); setStage('results'); }, 500);
-    } catch (err) {
-      // API not reachable — fall back to demo data so the UI remains explorable
+    } } catch (err) {
       clearInterval(progressIntervalRef.current);
-      setProgress(100);
-      setUsingMock(true);
-      setTimeout(() => {
-        setResult({ ...MOCK_RESULT, filename: file.name });
-        setStage('results');
-      }, 500);
-    }
-  };
+      setErrorMsg(
+        `Could not reach the analysis server. This usually means the Colab backend has disconnected or its URL changed. (${err.message})`
+      );
+      setStage('error');
+    } 
+};
 
   const reset = () => {
     setStage('upload'); setFile(null); setProgress(0); setResult(null); setErrorMsg('');
