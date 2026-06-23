@@ -129,9 +129,28 @@ export default function DeepfakeDetectorApp() {
       }
       setTimeout(() => { setResult(data); setStage('results'); }, 500);
     } catch (err) {
-      clearInterval(progressIntervalRef.current);
-      setErrorMsg(`Could not reach the analysis server. The server may be waking up — please wait 60 seconds and try again. (${err.message})`);
-      setStage('error');
+      // Auto-retry once after 20s — handles Render free tier cold start
+      console.log('First attempt failed, retrying after 20s...', err.message);
+      await new Promise(r => setTimeout(r, 20000));
+      try {
+        const formData2 = new FormData();
+        formData2.append('file', file);
+        const response2 = await fetch(`${API_BASE_URL}/analyze`, {
+          method: 'POST',
+          headers: { 'ngrok-skip-browser-warning': 'true' },
+          body: formData2,
+        });
+        if (!response2.ok) throw new Error(`Server returned ${response2.status}`);
+        const data2 = await response2.json();
+        clearInterval(progressIntervalRef.current);
+        setProgress(100);
+        if (data2.error) { setErrorMsg(data2.error); setStage('error'); return; }
+        setTimeout(() => { setResult(data2); setStage('results'); }, 500);
+      } catch (err2) {
+        clearInterval(progressIntervalRef.current);
+        setErrorMsg(`Server unavailable after two attempts. Please try again in a minute. (${err2.message})`);
+        setStage('error');
+      }
     }
   };
 
