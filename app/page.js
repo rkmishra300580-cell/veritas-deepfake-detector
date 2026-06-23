@@ -129,28 +129,9 @@ export default function DeepfakeDetectorApp() {
       }
       setTimeout(() => { setResult(data); setStage('results'); }, 500);
     } catch (err) {
-      // Auto-retry once after 20s — handles Render free tier cold start
-      console.log('First attempt failed, retrying after 20s...', err.message);
-      await new Promise(r => setTimeout(r, 20000));
-      try {
-        const formData2 = new FormData();
-        formData2.append('file', file);
-        const response2 = await fetch(`${API_BASE_URL}/analyze`, {
-          method: 'POST',
-          headers: { 'ngrok-skip-browser-warning': 'true' },
-          body: formData2,
-        });
-        if (!response2.ok) throw new Error(`Server returned ${response2.status}`);
-        const data2 = await response2.json();
-        clearInterval(progressIntervalRef.current);
-        setProgress(100);
-        if (data2.error) { setErrorMsg(data2.error); setStage('error'); return; }
-        setTimeout(() => { setResult(data2); setStage('results'); }, 500);
-      } catch (err2) {
-        clearInterval(progressIntervalRef.current);
-        setErrorMsg(`Server unavailable after two attempts. Please try again in a minute. (${err2.message})`);
-        setStage('error');
-      }
+      clearInterval(progressIntervalRef.current);
+      setErrorMsg(`Could not reach the analysis server. The server may be waking up — please wait 60 seconds and try again. (${err.message})`);
+      setStage('error');
     }
   };
 
@@ -286,9 +267,12 @@ export default function DeepfakeDetectorApp() {
                   {result.graphs.map((g, i) => (
                     <div key={i} style={{ background: '#0d1117', border: '1px solid #1f2937', borderRadius: 5, overflow: 'hidden' }}>
                       <div style={{ aspectRatio: '16/10', background: '#161b22', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        {g.image_b64
-                          ? <img src={`data:image/png;base64,${g.image_b64}`} alt={g.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                          : <span style={{ fontSize: 12, color: '#586069', fontFamily: 'monospace' }}>[ graph loading ]</span>}
+                        <img
+                          src={`${API_BASE_URL}/graph/${result.job_id}/${g.filename}`}
+                          alt={g.title}
+                          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                          onError={(e) => { e.target.style.display='none'; }}
+                        />
                       </div>
                       <div style={{ padding: 14 }}>
                         <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>{g.title}</div>
