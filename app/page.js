@@ -294,10 +294,13 @@ export default function VeritasApp() {
 
       {/* HEADER */}
       <header style={{ position: 'sticky', top: 0, zIndex: 100, borderBottom: '1px solid rgba(255,255,255,0.05)', padding: '14px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(8,12,18,0.85)', backdropFilter: 'blur(16px)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
           <ShieldAlert size={20} color="#00d4d4" />
-          <span style={{ fontWeight: 700, fontSize: 16, letterSpacing: -0.3 }}>VERITAS</span>
-          <span className="mono" style={{ fontSize: 10, color: '#30363d', border: '1px solid #1f2937', padding: '2px 7px', borderRadius: 4 }}>FORENSIC ENGINE v5</span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+            <span style={{ fontSize: 10, fontWeight: 600, color: '#00d4d4', letterSpacing: 2, textTransform: 'uppercase', lineHeight: 1 }}>AlgorivX.AI</span>
+            <span style={{ fontWeight: 800, fontSize: 22, letterSpacing: -0.5, color: '#e6edf3', lineHeight: 1 }}>Darpan</span>
+          </div>
+          <span className="mono" style={{ fontSize: 10, color: '#30363d', border: '1px solid #1f2937', padding: '2px 7px', borderRadius: 4, alignSelf: 'flex-end', marginBottom: 2 }}>FORENSIC ENGINE v5</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 20, fontSize: 13, color: '#586069' }}>
           {result && <button onClick={reset} className="btn-ghost" style={{ padding: '7px 14px', fontSize: 12 }}>New analysis</button>}
@@ -315,7 +318,7 @@ export default function VeritasApp() {
         {stage === 'upload' && (
           <div style={{ animation: 'fadeIn 0.4s ease', paddingTop: 64 }}>
             <div style={{ textAlign: 'center', marginBottom: 48 }}>
-              <div className="mono" style={{ fontSize: 11, color: '#00d4d4', letterSpacing: 3, marginBottom: 16, textTransform: 'uppercase' }}>Multi-stage forensic analysis</div>
+              <div className="mono" style={{ fontSize: 11, color: '#00d4d4', letterSpacing: 3, marginBottom: 16, textTransform: 'uppercase' }}>AlgorivX.AI · Darpan · Multi-stage forensic analysis</div>
               <h1 style={{ fontSize: 42, fontWeight: 700, letterSpacing: -1.5, lineHeight: 1.1, marginBottom: 16 }}>
                 Is this real<span style={{ color: '#00d4d4' }}>?</span>
               </h1>
