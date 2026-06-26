@@ -238,14 +238,14 @@ export default function VeritasApp() {
             <span style={{ fontSize: 10, fontWeight: 600, color: '#2dd4bf', letterSpacing: 2, textTransform: 'uppercase', lineHeight: 1 }}>AlgorivX.AI</span>
             <span style={{ fontWeight: 800, fontSize: 22, letterSpacing: -0.5, color: '#e6edf3', lineHeight: 1 }}>Darpan</span>
           </div>
-          <span className="mono" style={{ fontSize: 10, color: '#586069', border: '1px solid #1e2d4a', padding: '2px 7px', borderRadius: 4, alignSelf: 'flex-end', marginBottom: 2 }}>FORENSIC ENGINE v5</span>
+          <span className="mono" style={{ fontSize: 10, color: '#586069', border: '1px solid #1e2d4a', padding: '2px 7px', borderRadius: 4, alignSelf: 'flex-end', marginBottom: 2 }}>FORENSIC ENGINE v1</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 20, fontSize: 13, color: '#8b949e' }}>
           {result && <button onClick={reset} className="btn-ghost" style={{ padding: '7px 14px', fontSize: 12 }}>New analysis</button>}
           {result && <button onClick={downloadPDF} className="btn-primary" style={{ padding: '7px 14px', fontSize: 12 }}>
             <Download size={13} /> PDF Report
           </button>}
-          <span style={{ fontSize: 12 }}>Pro Plan</span>
+          
           <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'linear-gradient(135deg,#2dd4bf,#0891b2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#fff' }}>U</div>
         </div>
       </header>
