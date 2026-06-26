@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { Upload, FileImage, FileVideo, FileAudio, FileText, Download, AlertTriangle, ShieldAlert, ChevronRight, Lock, X, ZoomIn } from 'lucide-react';
+import React, { useState, useRef, useCallback } from 'react';
+import { Upload, FileImage, FileVideo, FileAudio, FileText, Download, AlertTriangle, ShieldAlert, Loader2, ChevronRight, Lock } from 'lucide-react';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'https://dfd-back-exc0.onrender.com';
 
@@ -91,133 +91,7 @@ function Bubbles() {
   );
 }
 
-// ── Graph carousel — layout unchanged, visual restyled ────────────────────────
-function OrbitCarousel({ graphs, jobId, isMock }) {
-  const [active, setActive] = useState(0);
-  const [lightbox, setLightbox] = useState(null);
-  const total = graphs.length;
-
-  useEffect(() => {
-    const t = setInterval(() => setActive(a => (a + 1) % total), 4000);
-    return () => clearInterval(t);
-  }, [total]);
-
-  const getOrbitPos = (index, total, radius) => {
-    const angle = ((index - active) / total) * 2 * Math.PI - Math.PI / 2;
-    return { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius };
-  };
-
-  const imgSrc = (g) => g.filename && jobId
-    ? `${API_BASE_URL}/graph/${jobId}/${g.filename}`
-    : null;
-
-  return (
-    <>
-      {lightbox && (
-        <div onClick={() => setLightbox(null)} style={{
-          position: 'fixed', inset: 0, background: 'rgba(10,15,25,0.88)', zIndex: 1000,
-          display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'zoom-out',
-        }}>
-          <img src={lightbox} alt="" style={{ maxWidth: '90vw', maxHeight: '90vh', borderRadius: 10, boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }} />
-          <button onClick={() => setLightbox(null)} style={{
-            position: 'absolute', top: 24, right: 24, background: 'rgba(255,255,255,0.12)',
-            border: 'none', borderRadius: '50%', width: 40, height: 40, cursor: 'pointer',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff',
-          }}><X size={18} /></button>
-        </div>
-      )}
-
-      <div style={{ position: 'relative', width: '100%', height: 420, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        {/* Orbit rings — now very subtle on light bg */}
-        <div style={{ position: 'absolute', width: 320, height: 320, borderRadius: '50%', border: '1px solid rgba(45,212,191,0.14)', pointerEvents: 'none' }} />
-        <div style={{ position: 'absolute', width: 220, height: 220, borderRadius: '50%', border: '1px solid rgba(45,212,191,0.08)', pointerEvents: 'none' }} />
-
-        {graphs.map((g, i) => {
-          const isActive = i === active;
-          const pos = getOrbitPos(i, total, 148);
-          const src = imgSrc(g);
-          return (
-            <div key={i}
-              onClick={() => { if (isActive) { if (src) setLightbox(src); } else setActive(i); }}
-              style={{
-                position: 'absolute',
-                left: '50%', top: '50%',
-                transform: `translate(calc(-50% + ${pos.x}px), calc(-50% + ${pos.y}px))`,
-                transition: 'all 0.6s cubic-bezier(0.34,1.56,0.64,1)',
-                width: isActive ? 72 : 52,
-                height: isActive ? 54 : 39,
-                borderRadius: 6,
-                border: isActive ? '2px solid #2dd4bf' : '1px solid rgba(45,212,191,0.25)',
-                overflow: 'hidden',
-                cursor: 'pointer',
-                boxShadow: isActive ? '0 4px 20px rgba(45,212,191,0.25)' : '0 2px 8px rgba(0,0,0,0.08)',
-                zIndex: isActive ? 10 : 1,
-                background: '#0d1c35',
-              }}
-            >
-              {src
-                ? <img src={src} alt={g.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, color: '#586069', textAlign: 'center', padding: 2 }}>DEMO</div>
-              }
-            </div>
-          );
-        })}
-
-        {/* Centre: active graph large */}
-        <div style={{
-          position: 'relative', width: 340, height: 240, borderRadius: 10,
-          border: '1px solid rgba(45,212,191,0.2)', overflow: 'hidden',
-          background: '#0d1c35',
-          boxShadow: '0 8px 40px rgba(45,212,191,0.08), 0 2px 12px rgba(0,0,0,0.06)',
-        }}>
-          {imgSrc(graphs[active])
-            ? <>
-                <img src={imgSrc(graphs[active])} alt={graphs[active].title}
-                  style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                <button onClick={() => setLightbox(imgSrc(graphs[active]))} style={{
-                  position: 'absolute', top: 8, right: 8, background: 'rgba(255,255,255,0.85)',
-                  border: '1px solid rgba(0,0,0,0.08)', borderRadius: 4, padding: '4px 6px',
-                  cursor: 'pointer', color: '#c9d1d9', display: 'flex', alignItems: 'center', gap: 4, fontSize: 11,
-                }}>
-                  <ZoomIn size={11} /> Full
-                </button>
-              </>
-            : <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-                <div style={{ fontSize: 11, color: '#586069', fontFamily: 'monospace' }}>[ demo mode ]</div>
-                <div style={{ fontSize: 12, color: '#586069', textAlign: 'center', padding: '0 16px' }}>{graphs[active].title}</div>
-              </div>
-          }
-        </div>
-
-        {/* Caption */}
-        <div style={{
-          position: 'absolute', bottom: 12, left: '50%', transform: 'translateX(-50%)',
-          textAlign: 'center', width: 340,
-        }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: '#2dd4bf', marginBottom: 2 }}>
-            {graphs[active].title}
-          </div>
-          <div style={{ fontSize: 11, color: '#8b949e', lineHeight: 1.4 }}>
-            {graphs[active].description}
-          </div>
-        </div>
-
-        {/* Dot nav */}
-        <div style={{ position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: 6 }}>
-          {graphs.map((_, i) => (
-            <div key={i} onClick={() => setActive(i)} style={{
-              width: i === active ? 18 : 6, height: 6, borderRadius: 3,
-              background: i === active ? '#2dd4bf' : '#1e2d4a',
-              cursor: 'pointer', transition: 'all 0.3s ease',
-            }} />
-          ))}
-        </div>
-      </div>
-    </>
-  );
-}
-
-// ── Score arc — same logic, light theme colours ───────────────────────────────
+// ── Scanning panel — moving scanline ─────────────────────────────────────────
 function ScoreArc({ score, threatLevel }) {
   const cfg = THREAT[threatLevel] || THREAT.MODERATE;
   const r = 54, circ = 2 * Math.PI * r;
@@ -242,56 +116,29 @@ function ScoreArc({ score, threatLevel }) {
 }
 
 // ── Scanning stage list — replaces spinning ring ──────────────────────────────
-function ScanStages({ progress }) {
-  const stages = [
-    { label: 'Frequency domain analysis',    thresh: 20  },
-    { label: 'Face forensic analysis',        thresh: 40  },
-    { label: 'Manipulation analysis',         thresh: 62  },
-    { label: 'Vehicle & object analysis',     thresh: 78  },
-    { label: 'Deep learning classification',  thresh: 90  },
-  ];
+function ScanningPanel({ fileName }) {
   return (
-    <div style={{ maxWidth: 380, margin: '0 auto', width: '100%' }}>
-      {stages.map((s, i) => {
-        const done   = progress > s.thresh;
-        const active = !done && (i === 0 ? progress > 0 : progress > stages[i-1].thresh);
-        return (
-          <div key={i} style={{
-            display: 'flex', alignItems: 'center', gap: 14,
-            padding: '11px 0',
-            borderBottom: i < stages.length - 1 ? '1px solid rgba(0,0,0,0.05)' : 'none',
-          }}>
-            {/* dot */}
-            <div style={{
-              width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
-              background: done ? '#2dd4bf' : active ? '#2dd4bf' : '#1e2d4a',
-              opacity: active ? 1 : done ? 1 : 0.5,
-              animation: active ? 'pulseDot 1.2s ease-in-out infinite' : 'none',
-            }} />
-            {/* label */}
-            <span style={{
-              fontSize: 13, flex: 1,
-              color: done ? '#e6edf3' : active ? '#e6edf3' : '#586069',
-            }}>{s.label}</span>
-            {/* status */}
-            <span style={{
-              fontSize: 11, letterSpacing: '0.06em',
-              color: done ? '#2dd4bf' : active ? '#94a3b8' : '#cbd5e1',
-              animation: active ? 'pulseDot 1.2s ease-in-out infinite' : 'none',
-            }}>
-              {done ? 'Complete' : active ? 'Running' : ''}
-            </span>
-          </div>
-        );
-      })}
-      {/* thin progress bar */}
-      <div style={{ marginTop: 20, height: 2, background: '#1e2d4a', borderRadius: 2, overflow: 'hidden' }}>
-        <div style={{ height: '100%', width: `${progress}%`, background: 'linear-gradient(90deg,#2dd4bf,#0891b2)', transition: 'width 0.4s ease', borderRadius: 2 }} />
+    <div style={{
+      background: '#0d1c35', border: '1px solid #1e2d4a', borderRadius: 4,
+      padding: '48px 32px', textAlign: 'center', position: 'relative', overflow: 'hidden',
+    }}>
+      {/* Moving scanline */}
+      <div style={{
+        position: 'absolute', top: 0, left: 0, right: 0, height: 2,
+        background: 'linear-gradient(90deg, transparent, #00d4d4, transparent)',
+        animation: 'scanline 2.2s ease-in-out infinite',
+      }} />
+      <div style={{
+        width: 64, height: 64, borderRadius: '50%', background: 'rgba(0,212,212,0.1)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 24px',
+        animation: 'pulse-ring 1.8s ease-out infinite',
+      }}>
+        <Loader2 size={28} color="#00d4d4" style={{ animation: 'spin 1.2s linear infinite' }} />
       </div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 11, color: '#586069' }}>
-        <span>Running forensic pipeline</span>
-        <span>{Math.round(progress)}%</span>
+      <div style={{ fontFamily: 'monospace', fontSize: 13, color: '#00d4d4', letterSpacing: 1.5, marginBottom: 8, textTransform: 'uppercase' }}>
+        Running forensic analysis
       </div>
+      <div style={{ color: '#8b949e', fontSize: 14 }}>{fileName}</div>
     </div>
   );
 }
@@ -361,7 +208,9 @@ export default function VeritasApp() {
           33%{transform:translateY(-18px) scale(1.02);}
           66%{transform:translateY(10px) scale(0.98);}
         }
-        @keyframes pulseDot{0%,100%{opacity:1;}50%{opacity:0.3;}}
+        @keyframes scanline   { 0% { transform: translateY(0); opacity: 0.3; } 50% { opacity: 1; } 100% { transform: translateY(400px); opacity: 0.3; } }
+        @keyframes pulse-ring { 0% { box-shadow: 0 0 0 0 rgba(0,212,212,0.4); } 100% { box-shadow: 0 0 0 16px rgba(0,212,212,0); } }
+        @keyframes spin       { to { transform: rotate(360deg); } }
         @keyframes fadeIn{from{opacity:0;transform:translateY(12px);}to{opacity:1;transform:translateY(0);}}
         @keyframes revealLine{from{width:0;}to{width:100%;}}
         .btn-primary{background:#2dd4bf;color:#fff;border:none;border-radius:6px;padding:11px 22px;font-size:13px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:7px;transition:all 0.2s;letter-spacing:0.2px;}
@@ -478,12 +327,8 @@ export default function VeritasApp() {
 
         {/* ── SCANNING ── */}
         {stage === 'scanning' && (
-          <div style={{ paddingTop: 80, animation: 'fadeIn 0.3s ease' }}>
-            <div style={{ textAlign: 'center', marginBottom: 36 }}>
-              <div className="mono" style={{ fontSize: 11, color: '#2dd4bf', letterSpacing: 3, marginBottom: 10, textTransform: 'uppercase' }}>Analysing</div>
-              <div style={{ fontSize: 15, color: '#e6edf3', fontWeight: 500 }}>{file?.name}</div>
-            </div>
-            <ScanStages progress={progress} />
+          <div style={{ animation: 'fadeIn 0.3s ease' }}>
+            <ScanningPanel fileName={file?.name} />
           </div>
         )}
 
@@ -539,15 +384,35 @@ export default function VeritasApp() {
               </div>
             </div>
 
-            {/* MIDDLE ROW: graph carousel + indicators */}
+            {/* MIDDLE ROW: graphs + indicators */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 16, marginBottom: 16 }}>
 
-              {/* Carousel */}
-              <div className="card" style={{ padding: '16px 0 0', overflow: 'hidden' }}>
-                <div style={{ padding: '0 20px 12px', fontSize: 11, color: '#586069', letterSpacing: 1, textTransform: 'uppercase' }}>Visual analysis</div>
+              {/* Plain graph grid */}
+              <div className="card" style={{ padding: 20 }}>
+                <div style={{ fontSize: 11, color: '#586069', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 14 }}>Visual analysis</div>
                 {result.graphs?.length > 0
-                  ? <OrbitCarousel graphs={result.graphs} jobId={result.job_id} isMock={isMock} />
-                  : <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#586069', fontSize: 13 }}>No graphs available</div>
+                  ? <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                      {result.graphs.map((g, i) => {
+                        const src = g.filename && result.job_id
+                          ? `${API_BASE_URL}/graph/${result.job_id}/${g.filename}`
+                          : g.image_b64 ? `data:image/png;base64,${g.image_b64}` : null;
+                        return (
+                          <div key={i} style={{ background: '#0d1c35', border: '1px solid #1e2d4a', borderRadius: 6, overflow: 'hidden' }}>
+                            <div style={{ aspectRatio: '16/10', background: '#0a1628', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                              {src
+                                ? <img src={src} alt={g.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                : <span style={{ fontSize: 11, color: '#3d5070', fontFamily: 'monospace' }}>[ loading ]</span>
+                              }
+                            </div>
+                            <div style={{ padding: '10px 12px' }}>
+                              <div style={{ fontSize: 12, fontWeight: 600, color: '#e6edf3', marginBottom: 3 }}>{g.title}</div>
+                              <div style={{ fontSize: 11, color: '#8b949e', lineHeight: 1.5 }}>{g.description}</div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  : <div style={{ height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3d5070', fontSize: 13 }}>No graphs available</div>
                 }
               </div>
 
