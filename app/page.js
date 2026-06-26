@@ -22,6 +22,36 @@ function formatBytes(bytes) {
   return `${(bytes / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`;
 }
 
+// ── Floating bubbles background ───────────────────────────────────────────────
+function Bubbles() {
+  const list = [
+    { size: 340, top: '-90px',  left: '-70px', delay: '0s',    dur: '20s', op: 0.45 },
+    { size: 180, top: '8%',    left: '72%',   delay: '2.5s',  dur: '15s', op: 0.35 },
+    { size: 260, top: '52%',   left: '-50px', delay: '4s',    dur: '22s', op: 0.3  },
+    { size: 120, top: '28%',   left: '58%',   delay: '1s',    dur: '17s', op: 0.28 },
+    { size: 210, top: '78%',   left: '78%',   delay: '3s',    dur: '24s', op: 0.4  },
+    { size: 90,  top: '18%',   left: '32%',   delay: '5s',    dur: '13s', op: 0.22 },
+    { size: 150, top: '82%',   left: '18%',   delay: '6s',    dur: '18s', op: 0.3  },
+    { size: 100, top: '44%',   left: '88%',   delay: '0.8s',  dur: '16s', op: 0.25 },
+  ];
+  return (
+    <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 0, overflow: 'hidden' }}>
+      {list.map((b, i) => (
+        <div key={i} style={{
+          position: 'absolute', top: b.top, left: b.left,
+          width: b.size, height: b.size, borderRadius: '50%',
+          background: `radial-gradient(circle at 32% 32%, rgba(96,165,250,${b.op}) 0%, rgba(45,212,191,0.06) 55%, transparent 75%)`,
+          border: '1px solid rgba(96,165,250,0.15)',
+          backdropFilter: 'blur(1px)',
+          animation: `floatBubble ${b.dur} ease-in-out infinite`,
+          animationDelay: b.delay,
+          boxShadow: `inset 0 1px 0 rgba(255,255,255,0.12), 0 8px 32px rgba(59,130,246,0.06)`,
+        }} />
+      ))}
+    </div>
+  );
+}
+
 // ── Scanning panel: scanline + stage checklist ────────────────────────────────
 function ScanningPanel({ fileName, progress }) {
   const stages = [
@@ -34,7 +64,7 @@ function ScanningPanel({ fileName, progress }) {
 
   return (
     <div style={{
-      background: '#0d1117', border: '1px solid #1f2937', borderRadius: 4,
+      background: '#0d1c35', border: '1px solid #1e2d4a', borderRadius: 4,
       padding: '48px 32px', textAlign: 'center', position: 'relative', overflow: 'hidden',
     }}>
       {/* Scanline — original moving horizontal line */}
@@ -78,7 +108,7 @@ function ScanningPanel({ fileName, progress }) {
             }}>
               <div style={{
                 width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
-                background: done ? '#00d4d4' : active ? '#00d4d4' : '#1f2937',
+                background: done ? '#00d4d4' : active ? '#00d4d4' : '#1e2d4a',
                 animation: active ? 'pulseDot 1.2s ease-in-out infinite' : 'none',
               }} />
               <span style={{ fontSize: 12, flex: 1, color: done ? '#c9d1d9' : active ? '#e6edf3' : '#586069' }}>
@@ -98,7 +128,7 @@ function ScanningPanel({ fileName, progress }) {
 
       {/* Progress bar */}
       <div style={{ maxWidth: 340, margin: '0 auto' }}>
-        <div style={{ height: 2, background: '#1f2937', borderRadius: 2, overflow: 'hidden' }}>
+        <div style={{ height: 2, background: '#1e2d4a', borderRadius: 2, overflow: 'hidden' }}>
           <div style={{ height: '100%', width: `${progress}%`, background: 'linear-gradient(90deg,#00d4d4,#0891b2)', transition: 'width 0.4s ease', borderRadius: 2 }} />
         </div>
         <div style={{ fontFamily: 'monospace', fontSize: 11, color: '#586069', marginTop: 8, display: 'flex', justifyContent: 'space-between' }}>
@@ -118,7 +148,7 @@ function ScoreGauge({ score, threatLevel }) {
   return (
     <div style={{ position: 'relative', width: 200, height: 200, margin: '0 auto' }}>
       <svg width="200" height="200" style={{ transform: 'rotate(-90deg)' }}>
-        <circle cx="100" cy="100" r={radius} fill="none" stroke="#1f2937" strokeWidth="12" />
+        <circle cx="100" cy="100" r={radius} fill="none" stroke="#1e2d4a" strokeWidth="12" />
         <circle cx="100" cy="100" r={radius} fill="none" stroke={config.color} strokeWidth="12"
           strokeDasharray={circumference} strokeDashoffset={offset} strokeLinecap="round"
           style={{ transition: 'stroke-dashoffset 1s ease-out' }} />
@@ -226,41 +256,44 @@ export default function DeepfakeDetectorApp() {
   const downloadPDF = () => { window.open(`${API_BASE_URL}/report/${result.job_id}`, '_blank'); };
 
   return (
-    <div style={{ minHeight: '100vh', background: '#060a10', color: '#e6edf3', fontFamily: "'Inter', -apple-system, sans-serif" }}>
+    <div style={{ minHeight: '100vh', background: '#0a1628', color: '#e6edf3', fontFamily: "'Inter', -apple-system, sans-serif", position: 'relative' }}>
       <style>{`
         * { box-sizing: border-box; }
-        ::selection { background: #00d4d4; color: #060a10; }
+        ::selection { background: #00d4d4; color: #0a1628; }
+        @keyframes floatBubble { 0%,100%{transform:translateY(0) scale(1);} 33%{transform:translateY(-20px) scale(1.02);} 66%{transform:translateY(12px) scale(0.98);} }
       `}</style>
 
+      <Bubbles />
+
       {/* HEADER */}
-      <header style={{ borderBottom: '1px solid #1a2133', padding: '18px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#060a10', position: 'sticky', top: 0, zIndex: 100 }}>
+      <header style={{ borderBottom: '1px solid #1e2d4a', padding: '18px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(10,22,40,0.85)', backdropFilter: 'blur(12px)', position: 'sticky', top: 0, zIndex: 100 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <ShieldAlert size={22} color="#00d4d4" />
           <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
             <span style={{ fontSize: 9, fontWeight: 600, color: '#00d4d4', letterSpacing: 2, textTransform: 'uppercase', lineHeight: 1 }}>AlgorivX.AI</span>
             <span style={{ fontWeight: 800, fontSize: 20, letterSpacing: -0.5, color: '#e6edf3', lineHeight: 1 }}>Darpan</span>
           </div>
-          <span style={{ fontFamily: 'monospace', fontSize: 10, color: '#586069', border: '1px solid #1a2133', padding: '2px 6px', borderRadius: 3, alignSelf: 'flex-end', marginBottom: 1 }}>
+          <span style={{ fontFamily: 'monospace', fontSize: 10, color: '#586069', border: '1px solid #1e2d4a', padding: '2px 6px', borderRadius: 3, alignSelf: 'flex-end', marginBottom: 1 }}>
             FORENSIC ENGINE v5
           </span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, fontSize: 13, color: '#8b949e' }}>
           {result && (
             <>
-              <button onClick={downloadPDF} style={{ background: '#00d4d4', color: '#060a10', border: 'none', borderRadius: 5, padding: '8px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <button onClick={downloadPDF} style={{ background: '#00d4d4', color: '#0a1628', border: 'none', borderRadius: 5, padding: '8px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
                 <Download size={13} /> PDF Report
               </button>
-              <button onClick={reset} style={{ background: 'transparent', color: '#8b949e', border: '1px solid #1a2133', borderRadius: 5, padding: '8px 12px', fontSize: 12, cursor: 'pointer' }}>
+              <button onClick={reset} style={{ background: 'transparent', color: '#8b949e', border: '1px solid #1e2d4a', borderRadius: 5, padding: '8px 12px', fontSize: 12, cursor: 'pointer' }}>
                 New analysis
               </button>
             </>
           )}
           <span>Pro Plan</span>
-          <div style={{ width: 28, height: 28, borderRadius: '50%', background: '#1a2133', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 600 }}>U</div>
+          <div style={{ width: 28, height: 28, borderRadius: '50%', background: '#162040', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 600 }}>U</div>
         </div>
       </header>
 
-      <main style={{ maxWidth: 920, margin: '0 auto', padding: '48px 24px' }}>
+      <main style={{ maxWidth: 920, margin: '0 auto', padding: '48px 24px', position: 'relative', zIndex: 1 }}>
 
         {/* ── UPLOAD ── */}
         {stage === 'upload' && (
@@ -272,7 +305,7 @@ export default function DeepfakeDetectorApp() {
 
             <div onDragEnter={handleDrag} onDragLeave={handleDrag} onDragOver={handleDrag} onDrop={handleDrop}
               onClick={() => fileInputRef.current?.click()}
-              style={{ border: `2px dashed ${dragActive ? '#00d4d4' : '#1a2133'}`, borderRadius: 6, padding: '56px 24px', textAlign: 'center', cursor: 'pointer', background: dragActive ? 'rgba(0,212,212,0.04)' : '#0a0f18', transition: 'all 0.15s ease' }}>
+              style={{ border: `2px dashed ${dragActive ? '#00d4d4' : '#1e2d4a'}`, borderRadius: 6, padding: '56px 24px', textAlign: 'center', cursor: 'pointer', background: dragActive ? 'rgba(0,212,212,0.04)' : '#0d1c35', transition: 'all 0.15s ease' }}>
               <input ref={fileInputRef} type="file" style={{ display: 'none' }}
                 onChange={(e) => handleFileSelect(e.target.files?.[0])}
                 accept=".jpg,.jpeg,.png,.bmp,.tiff,.webp,.mp4,.avi,.mov,.mkv,.webm,.mp3,.wav,.aac,.flac,.ogg,.m4a,.pdf,.docx,.txt" />
@@ -283,10 +316,10 @@ export default function DeepfakeDetectorApp() {
 
             {file && (
               <div style={{ marginTop: 20, display: 'flex', gap: 12, alignItems: 'center' }}>
-                <button onClick={startAnalysis} style={{ background: '#00d4d4', color: '#060a10', border: 'none', borderRadius: 5, padding: '12px 24px', fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <button onClick={startAnalysis} style={{ background: '#00d4d4', color: '#0a1628', border: 'none', borderRadius: 5, padding: '12px 24px', fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}>
                   Run analysis <ChevronRight size={16} />
                 </button>
-                <button onClick={() => setFile(null)} style={{ background: 'transparent', color: '#8b949e', border: '1px solid #1a2133', borderRadius: 5, padding: '12px 18px', fontSize: 14, cursor: 'pointer' }}>Clear</button>
+                <button onClick={() => setFile(null)} style={{ background: 'transparent', color: '#8b949e', border: '1px solid #1e2d4a', borderRadius: 5, padding: '12px 18px', fontSize: 14, cursor: 'pointer' }}>Clear</button>
               </div>
             )}
 
@@ -297,7 +330,7 @@ export default function DeepfakeDetectorApp() {
                 { icon: FileAudio, label: 'Audio',     desc: 'Voice clone / TTS detection'      },
                 { icon: FileText,  label: 'Documents', desc: 'AI-generated text detection'      },
               ].map((item) => (
-                <div key={item.label} style={{ background: '#0a0f18', border: '1px solid #1a2133', borderRadius: 5, padding: 16 }}>
+                <div key={item.label} style={{ background: '#0d1c35', border: '1px solid #1e2d4a', borderRadius: 5, padding: 16 }}>
                   <item.icon size={18} color="#00d4d4" style={{ marginBottom: 10 }} />
                   <div style={{ fontSize: 13, fontWeight: 600 }}>{item.label}</div>
                   <div style={{ fontSize: 12, color: '#586069', marginTop: 4 }}>{item.desc}</div>
@@ -312,11 +345,11 @@ export default function DeepfakeDetectorApp() {
 
         {/* ── ERROR ── */}
         {stage === 'error' && (
-          <div style={{ background: '#0a0f18', border: '1px solid #ef4444', borderRadius: 6, padding: 32, textAlign: 'center' }}>
+          <div style={{ background: '#0d1c35', border: '1px solid #ef4444', borderRadius: 6, padding: 32, textAlign: 'center' }}>
             <AlertTriangle size={28} color="#ef4444" style={{ marginBottom: 16 }} />
             <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>Analysis failed</div>
             <div style={{ fontSize: 14, color: '#8b949e', marginBottom: 24 }}>{errorMsg}</div>
-            <button onClick={reset} style={{ background: '#1a2133', color: '#e6edf3', border: 'none', borderRadius: 5, padding: '10px 20px', fontSize: 14, cursor: 'pointer' }}>Try another file</button>
+            <button onClick={reset} style={{ background: '#162040', color: '#e6edf3', border: 'none', borderRadius: 5, padding: '10px 20px', fontSize: 14, cursor: 'pointer' }}>Try another file</button>
           </div>
         )}
 
@@ -337,16 +370,16 @@ export default function DeepfakeDetectorApp() {
                   </div>
                   <p style={{ fontSize: 15, lineHeight: 1.6, margin: 0, color: '#e6edf3' }}>{result.verdict}</p>
                   <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
-                    <button onClick={downloadPDF} style={{ background: '#00d4d4', color: '#060a10', border: 'none', borderRadius: 5, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <button onClick={downloadPDF} style={{ background: '#00d4d4', color: '#0a1628', border: 'none', borderRadius: 5, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
                       <Download size={14} /> Download full PDF report
                     </button>
-                    <button onClick={reset} style={{ background: 'transparent', color: '#8b949e', border: '1px solid #1a2133', borderRadius: 5, padding: '9px 16px', fontSize: 13, cursor: 'pointer' }}>Analyse another file</button>
+                    <button onClick={reset} style={{ background: 'transparent', color: '#8b949e', border: '1px solid #1e2d4a', borderRadius: 5, padding: '9px 16px', fontSize: 13, cursor: 'pointer' }}>Analyse another file</button>
                   </div>
                 </div>
               </div>
 
               {/* File info bar */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', background: '#0a0f18', border: '1px solid #1a2133', borderRadius: 5, marginBottom: 24, fontFamily: 'monospace', fontSize: 12, color: '#8b949e', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', background: '#0d1c35', border: '1px solid #1e2d4a', borderRadius: 5, marginBottom: 24, fontFamily: 'monospace', fontSize: 12, color: '#8b949e', flexWrap: 'wrap' }}>
                 {React.createElement(FILE_ICONS[result.file_type] || FileText, { size: 14, color: '#00d4d4' })}
                 <span style={{ color: '#e6edf3' }}>{result.filename}</span>
                 <span>·</span><span>{result.file_type}</span>
@@ -361,7 +394,7 @@ export default function DeepfakeDetectorApp() {
                   <h3 style={{ fontSize: 13, color: '#586069', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 12 }}>Stage breakdown</h3>
                   <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Object.keys(stageScores).length}, 1fr)`, gap: 10 }}>
                     {Object.entries(stageScores).map(([key, val]) => (
-                      <div key={key} style={{ background: '#0a0f18', border: '1px solid #1a2133', borderRadius: 5, padding: 14 }}>
+                      <div key={key} style={{ background: '#0d1c35', border: '1px solid #1e2d4a', borderRadius: 5, padding: 14 }}>
                         <div style={{ fontSize: 11, color: '#586069', textTransform: 'capitalize', marginBottom: 6 }}>{key.replace(/_/g, ' ')}</div>
                         <div style={{ fontFamily: 'monospace', fontSize: 20, fontWeight: 700, color: val >= 50 ? '#f97316' : '#10b981' }}>{val}%</div>
                       </div>
@@ -374,9 +407,9 @@ export default function DeepfakeDetectorApp() {
               {result.indicators?.length > 0 && (
                 <div style={{ marginBottom: 24 }}>
                   <h3 style={{ fontSize: 13, color: '#586069', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 12 }}>Flagged indicators ({result.indicators.length})</h3>
-                  <div style={{ background: '#0a0f18', border: '1px solid #1a2133', borderRadius: 5, overflow: 'hidden' }}>
+                  <div style={{ background: '#0d1c35', border: '1px solid #1e2d4a', borderRadius: 5, overflow: 'hidden' }}>
                     {result.indicators.map((ind, i) => (
-                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 16px', fontSize: 13, borderBottom: i < result.indicators.length - 1 ? '1px solid #1a2133' : 'none' }}>
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 16px', fontSize: 13, borderBottom: i < result.indicators.length - 1 ? '1px solid #1e2d4a' : 'none' }}>
                         <AlertTriangle size={13} color="#f97316" style={{ flexShrink: 0 }} />
                         <span style={{ color: '#c9d1d9' }}>{ind}</span>
                       </div>
@@ -393,8 +426,8 @@ export default function DeepfakeDetectorApp() {
                     {result.graphs.map((g, i) => {
                       const src = graphSrc(g, result.job_id);
                       return (
-                        <div key={i} style={{ background: '#0a0f18', border: '1px solid #1a2133', borderRadius: 5, overflow: 'hidden' }}>
-                          <div style={{ aspectRatio: '16/10', background: '#0d1117', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <div key={i} style={{ background: '#0d1c35', border: '1px solid #1e2d4a', borderRadius: 5, overflow: 'hidden' }}>
+                          <div style={{ aspectRatio: '16/10', background: '#0d1c35', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                             {src
                               ? <img src={src} alt={g.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                               : <span style={{ fontSize: 12, color: '#586069', fontFamily: 'monospace' }}>[ graph loading ]</span>
@@ -417,7 +450,7 @@ export default function DeepfakeDetectorApp() {
                   <h3 style={{ fontSize: 13, color: '#586069', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 12 }}>Detailed metrics</h3>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
                     {result.stats.map((s, i) => (
-                      <div key={i} style={{ background: '#0a0f18', border: '1px solid #1a2133', borderRadius: 5, padding: '12px 14px' }}>
+                      <div key={i} style={{ background: '#0d1c35', border: '1px solid #1e2d4a', borderRadius: 5, padding: '12px 14px' }}>
                         <div style={{ fontSize: 11, color: '#586069', marginBottom: 4 }}>{s.label}</div>
                         <div style={{ fontFamily: 'monospace', fontSize: 14, color: '#e6edf3' }}>{s.value}</div>
                       </div>
@@ -431,7 +464,7 @@ export default function DeepfakeDetectorApp() {
                 <h3 style={{ fontSize: 13, color: '#586069', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 12 }}>
                   <Lock size={12} style={{ display: 'inline', marginRight: 6, verticalAlign: -1 }} /> File evidence
                 </h3>
-                <div style={{ background: '#0a0f18', border: '1px solid #1a2133', borderRadius: 5, padding: 16, fontFamily: 'monospace', fontSize: 12, color: '#8b949e', lineHeight: 2 }}>
+                <div style={{ background: '#0d1c35', border: '1px solid #1e2d4a', borderRadius: 5, padding: 16, fontFamily: 'monospace', fontSize: 12, color: '#8b949e', lineHeight: 2 }}>
                   <div><span style={{ color: '#586069' }}>MD5    </span> {result.metadata?.md5}</div>
                   <div><span style={{ color: '#586069' }}>SHA256 </span> {result.metadata?.sha256}</div>
                   <div><span style={{ color: '#586069' }}>MIME   </span> {result.metadata?.mime}</div>
