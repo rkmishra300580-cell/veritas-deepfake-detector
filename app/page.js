@@ -362,8 +362,8 @@ export default function DeepfakeDetectorApp() {
             <span style={{ fontSize:9, fontWeight:600, color:'#00d4d4', letterSpacing:2, textTransform:'uppercase', lineHeight:1 }}>AlgorivX.AI</span>
             <span style={{ fontWeight:800, fontSize:20, letterSpacing:-0.5, color:'#e6edf3', lineHeight:1 }}>Darpan</span>
           </div>
-          <span style={{ fontFamily:'monospace', fontSize:10, color:'#586069', border:'1px solid #1e2d4a', padding:'2px 6px', borderRadius:3, alignSelf:'flex-end', marginBottom:1 }}>
-            FORENSIC ENGINE v5
+          <span style={{ fontFamily:'monospace', fontSize:10, color:'#00d4d4', border:'1px solid #1e2d4a', padding:'2px 6px', borderRadius:3, alignSelf:'flex-end', marginBottom:1 }}>
+            FORENSIC ENGINE v 1.0
           </span>
         </div>
         <div style={{ display:'flex', alignItems:'center', gap:14, fontSize:13, color:'#8b949e' }}>
