@@ -1,159 +1,301 @@
 'use client';
 
 import React, { useState, useRef, useCallback } from 'react';
-import { Upload, FileImage, FileVideo, FileAudio, FileText, Download, AlertTriangle, ShieldAlert, Loader2, ChevronRight, Lock } from 'lucide-react';
+import { Upload, FileImage, FileVideo, FileAudio, FileText, Download,
+         AlertTriangle, ShieldAlert, Loader2, ChevronRight, Lock, X } from 'lucide-react';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'https://dfd-back-exc0.onrender.com';
 
-const MOCK_RESULT = {
-  job_id: 'a1b2c3d4e5f6',
-  file_type: 'IMAGE',
-  filename: 'sample_portrait.jpg',
-  timestamp: new Date().toISOString(),
-  final_score: 78.4,
-  threat_level: 'HIGH',
-  verdict: 'Multiple independent forensic and DL indicators strongly suggest synthetic or AI-generated content.',
-  stage_scores: { frequency: 71.4, face_forensics: 66.7, deep_learning: 84.2 },
-  indicators: [
-    '[Frequency] Flattened high-frequency spectrum',
-    '[Frequency] Weak high-frequency energy',
-    '[Face] Face warping/smoothing artifacts',
-    '[Face] Resolution mismatch: face vs surroundings',
-    '[DL] Abnormally consistent patch variance',
-    '[EXIF] No EXIF metadata — consistent with AI-generated image',
-  ],
-  metadata: {
-    name: 'sample_portrait.jpg', size_bytes: 2147483, mime: 'image/jpeg',
-    md5: '9f8e7d6c5b4a3210fedcba9876543210',
-    sha256: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
-    analyzed_at: new Date().toISOString(),
-  },
-  stats: [
-    { label: 'Low Band Energy', value: '0.8821' }, { label: 'Mid Band Energy', value: '0.3142' },
-    { label: 'High Band Energy', value: '0.0512' }, { label: 'Spectral Entropy', value: '12.34' },
-    { label: 'Faces Detected', value: '1' }, { label: 'Face Forensic Score', value: '66.7%' },
-    { label: 'DL Model Score', value: '84.2%' }, { label: 'Final Fusion Score', value: '78.4%' },
-  ],
-  graphs: [
-    { title: 'Frequency Spectrum', filename: null, description: 'Power and phase spectrum. Synthetic images show unnatural uniformity.' },
-    { title: 'Frequency Decay Profile', filename: null, description: 'Real cameras decay smoothly. Flat regions suggest synthetic generation.' },
-    { title: 'Face Detection', filename: null, description: '1 face detected. Analysed for warping, blending and resolution inconsistencies.' },
-    { title: 'Deep Learning Analysis', filename: null, description: 'Attention heatmap and patch variance. DL confidence: 84.2%.' },
-  ],
-  pdf_ready: true,
+// ── Classification config (new three-class taxonomy) ─────────────────────────
+const CLF_CONFIG = {
+  REAL:          { color: '#10b981', bg: 'rgba(16,185,129,0.08)',  border: 'rgba(16,185,129,0.3)',  label: 'REAL',          icon: '✓' },
+  AI_GENERATED:  { color: '#f59e0b', bg: 'rgba(245,158,11,0.08)', border: 'rgba(245,158,11,0.3)',  label: 'AI GENERATED',  icon: '⚠' },
+  DEEPFAKE:      { color: '#ef4444', bg: 'rgba(239,68,68,0.08)',   border: 'rgba(239,68,68,0.3)',   label: 'DEEPFAKE',       icon: '✗' },
+  UNKNOWN:       { color: '#6b7280', bg: 'rgba(107,114,128,0.08)', border: 'rgba(107,114,128,0.3)', label: 'UNKNOWN',        icon: '?' },
 };
 
-const THREAT = {
-  CRITICAL: { color: '#c0392b', label: 'CRITICAL' },
-  HIGH:     { color: '#d97706', label: 'HIGH'     },
-  MODERATE: { color: '#b7791f', label: 'MODERATE' },
-  LOW:      { color: '#059669', label: 'LOW'      },
-  MINIMAL:  { color: '#0891b2', label: 'MINIMAL'  },
+// Legacy fallback for results without classification field
+const THREAT_CONFIG = {
+  CRITICAL: { color: '#ef4444' }, HIGH: { color: '#f97316' },
+  MODERATE: { color: '#f59e0b' }, LOW:  { color: '#84cc16' }, MINIMAL: { color: '#10b981' },
 };
 
-function formatBytes(b) {
-  if (!b) return '0 B';
-  const k = 1024, s = ['B','KB','MB','GB'], i = Math.floor(Math.log(b)/Math.log(k));
-  return `${(b/Math.pow(k,i)).toFixed(2)} ${s[i]}`;
+// Stage keys to show in breakdown — excludes internal scoring intermediates
+const STAGE_DISPLAY = {
+  frequency:       'Frequency Analysis',
+  face_forensics:  'Face Forensics',
+  manipulation:    'Manipulation',
+  vehicle_damage:  'Vehicle Damage',
+  deep_learning:   'DL Deepfake',
+  dl_ai_generated: 'DL AI-Gen',
+};
+
+// Stage explanations shown to non-technical users
+const STAGE_EXPLAIN = {
+  frequency:       'Analyses the mathematical frequency patterns of the image. AI-generated images often lack the natural high-frequency noise of real cameras.',
+  face_forensics:  'Examines face regions for signs of blending, boundary artifacts, resolution mismatches, and other face-swap indicators.',
+  manipulation:    'Runs Error Level Analysis, copy-move detection, PRNU noise consistency, and metadata checks to find edited regions.',
+  vehicle_damage:  'Compares ELA and texture across damage vs undamaged regions. AI-generated insurance damage has characteristic compression signatures.',
+  deep_learning:   'Deep learning model trained on face deepfakes. High score = face-swap or GAN-generated face detected.',
+  dl_ai_generated: 'AI-image detector model (sdxl-detector). High score = image was likely generated by an AI image generator.',
+};
+
+const FILE_ICONS = { IMAGE: FileImage, VIDEO: FileVideo, AUDIO: FileAudio, DOCUMENT: FileText };
+
+function formatBytes(bytes) {
+  if (!bytes) return '0 B';
+  const k = 1024, sizes = ['B','KB','MB','GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${(bytes / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`;
 }
 
-// ── Bubbles background ────────────────────────────────────────────────────────
+// ── Bubbles ───────────────────────────────────────────────────────────────────
 function Bubbles() {
-  const bubbles = [
-    { size: 320, top: '-80px', left: '-60px',  delay: '0s',   dur: '18s', opacity: 0.55 },
-    { size: 180, top: '10%',   left: '70%',    delay: '2s',   dur: '14s', opacity: 0.45 },
-    { size: 240, top: '55%',   left: '-40px',  delay: '4s',   dur: '20s', opacity: 0.4  },
-    { size: 130, top: '30%',   left: '55%',    delay: '1s',   dur: '16s', opacity: 0.35 },
-    { size: 200, top: '75%',   left: '75%',    delay: '3s',   dur: '22s', opacity: 0.5  },
-    { size: 90,  top: '20%',   left: '30%',    delay: '5s',   dur: '12s', opacity: 0.3  },
-    { size: 160, top: '80%',   left: '20%',    delay: '6s',   dur: '17s', opacity: 0.38 },
-    { size: 110, top: '45%',   left: '85%',    delay: '0.5s', dur: '15s', opacity: 0.32 },
+  const list = [
+    { size:320, top:'-90px', left:'-70px', delay:'0s',   dur:'20s', op:0.45 },
+    { size:180, top:'8%',    left:'72%',   delay:'2.5s', dur:'15s', op:0.35 },
+    { size:260, top:'52%',   left:'-50px', delay:'4s',   dur:'22s', op:0.3  },
+    { size:120, top:'28%',   left:'58%',   delay:'1s',   dur:'17s', op:0.28 },
+    { size:210, top:'78%',   left:'78%',   delay:'3s',   dur:'24s', op:0.4  },
+    { size:90,  top:'18%',   left:'32%',   delay:'5s',   dur:'13s', op:0.22 },
+    { size:150, top:'82%',   left:'18%',   delay:'6s',   dur:'18s', op:0.3  },
+    { size:100, top:'44%',   left:'88%',   delay:'0.8s', dur:'16s', op:0.25 },
   ];
   return (
-    <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 0, overflow: 'hidden' }}>
-      {bubbles.map((b, i) => (
+    <div style={{ position:'fixed', inset:0, pointerEvents:'none', zIndex:0, overflow:'hidden' }}>
+      {list.map((b,i) => (
         <div key={i} style={{
-          position: 'absolute',
-          top: b.top,
-          left: b.left,
-          width: b.size,
-          height: b.size,
-          borderRadius: '50%',
-          background: `radial-gradient(circle at 35% 35%, rgba(59,130,246,${b.opacity}) 0%, rgba(45,212,191,0.08) 55%, transparent 75%)`,
-          border: '1px solid rgba(59,130,246,0.15)',
-          backdropFilter: 'blur(2px)',
-          animation: `floatBubble ${b.dur} ease-in-out infinite`,
-          animationDelay: b.delay,
-          boxShadow: `inset 0 1px 0 rgba(255,255,255,0.08), 0 8px 32px rgba(45,212,191,0.06)`,
+          position:'absolute', top:b.top, left:b.left, width:b.size, height:b.size,
+          borderRadius:'50%',
+          background:`radial-gradient(circle at 32% 32%, rgba(59,130,246,${b.op}) 0%, rgba(45,212,191,0.06) 55%, transparent 75%)`,
+          border:'1px solid rgba(59,130,246,0.15)', backdropFilter:'blur(1px)',
+          animation:`floatBubble ${b.dur} ease-in-out infinite`, animationDelay:b.delay,
+          boxShadow:`inset 0 1px 0 rgba(255,255,255,0.08), 0 8px 32px rgba(59,130,246,0.06)`,
         }} />
       ))}
     </div>
   );
 }
 
-// ── Scanning panel — moving scanline ─────────────────────────────────────────
-function ScoreArc({ score, threatLevel }) {
-  const cfg = THREAT[threatLevel] || THREAT.MODERATE;
-  const r = 54, circ = 2 * Math.PI * r;
-  const offset = circ - (score / 100) * circ;
+// ── Scanning panel ────────────────────────────────────────────────────────────
+function ScanningPanel({ fileName }) {
   return (
-    <div style={{ position: 'relative', width: 140, height: 140 }}>
-      <svg width="140" height="140" style={{ transform: 'rotate(-90deg)' }}>
-        <circle cx="70" cy="70" r={r} fill="none" stroke="#1e2d4a" strokeWidth="8" />
-        <circle cx="70" cy="70" r={r} fill="none" stroke={cfg.color} strokeWidth="8"
-          strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round"
-          style={{ transition: 'stroke-dashoffset 1.2s cubic-bezier(0.4,0,0.2,1)' }}
-        />
-      </svg>
-      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 28, fontWeight: 700, color: cfg.color, lineHeight: 1 }}>
-          {score.toFixed(0)}
+    <div style={{
+      background:'#0d1c35', border:'1px solid #1e2d4a', borderRadius:6,
+      padding:'48px 32px', textAlign:'center', position:'relative', overflow:'hidden',
+    }}>
+      <div style={{
+        position:'absolute', top:0, left:0, right:0, height:2,
+        background:'linear-gradient(90deg, transparent, #00d4d4, transparent)',
+        animation:'scanline 2.2s ease-in-out infinite',
+      }} />
+      <div style={{
+        width:64, height:64, borderRadius:'50%', background:'rgba(0,212,212,0.1)',
+        display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 24px',
+        animation:'pulse-ring 1.8s ease-out infinite',
+      }}>
+        <Loader2 size={28} color="#00d4d4" style={{ animation:'spin 1.2s linear infinite' }} />
+      </div>
+      <div style={{ fontFamily:'monospace', fontSize:13, color:'#00d4d4', letterSpacing:1.5, marginBottom:8, textTransform:'uppercase' }}>
+        Running forensic analysis
+      </div>
+      <div style={{ color:'#8b949e', fontSize:14 }}>{fileName}</div>
+    </div>
+  );
+}
+
+// ── Dominant score display (replaces ScoreGauge) ──────────────────────────────
+function VerdictHero({ result }) {
+  // Prefer new classification fields; fall back to legacy for older responses
+  const clf       = result.classification || (result.final_score >= 50 ? 'DEEPFAKE' : 'REAL');
+  const cfg       = CLF_CONFIG[clf] || CLF_CONFIG.UNKNOWN;
+  const domLabel  = result.dominant_label || `${result.final_score?.toFixed(1)}%`;
+  const domScore  = result.dominant_score ?? result.final_score ?? 0;
+  const riskLevel = result.risk_level || result.threat_level || '';
+
+  // Score breakdown bars (ai_generated_score, deepfake_score, real_score)
+  const tracks = [];
+  if (result.ai_generated_score != null) tracks.push({ label:'AI Generated', val:result.ai_generated_score, color:'#f59e0b' });
+  if (result.deepfake_score      != null) tracks.push({ label:'Deepfake',     val:result.deepfake_score,     color:'#ef4444' });
+  if (result.real_score          != null) tracks.push({ label:'Real',         val:result.real_score,         color:'#10b981' });
+
+  return (
+    <div style={{
+      background:cfg.bg, border:`1px solid ${cfg.border}`, borderRadius:8,
+      padding:28, marginBottom:20,
+    }}>
+      <div style={{ display:'flex', gap:28, alignItems:'flex-start', flexWrap:'wrap' }}>
+
+        {/* Dominant label — the headline number */}
+        <div style={{ textAlign:'center', minWidth:160 }}>
+          <div style={{
+            fontSize:48, fontWeight:800, color:cfg.color, lineHeight:1,
+            fontFamily:"'JetBrains Mono', monospace", letterSpacing:-1,
+          }}>
+            {domScore.toFixed(0)}%
+          </div>
+          <div style={{
+            marginTop:8, display:'inline-block',
+            fontSize:13, fontWeight:700, letterSpacing:2,
+            color:cfg.color, border:`1px solid ${cfg.border}`,
+            borderRadius:4, padding:'4px 12px', textTransform:'uppercase',
+          }}>
+            {cfg.icon} {cfg.label}
+          </div>
+          {riskLevel && (
+            <div style={{ marginTop:6, fontSize:11, color:'#586069', letterSpacing:1 }}>
+              {riskLevel} RISK
+            </div>
+          )}
         </div>
-        <div style={{ fontSize: 9, color: '#586069', letterSpacing: 1, marginTop: 2 }}>% FAKE</div>
+
+        {/* Three-track bar breakdown */}
+        <div style={{ flex:1, minWidth:200 }}>
+          {tracks.length > 0 && (
+            <div style={{ marginBottom:16 }}>
+              {tracks.map(t => (
+                <div key={t.label} style={{ marginBottom:10 }}>
+                  <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, color:'#8b949e', marginBottom:4 }}>
+                    <span>{t.label}</span><span style={{ color:t.color, fontWeight:700 }}>{t.val.toFixed(1)}%</span>
+                  </div>
+                  <div style={{ height:5, background:'#1e2d4a', borderRadius:3, overflow:'hidden' }}>
+                    <div style={{ height:'100%', width:`${t.val}%`, background:t.color, borderRadius:3, transition:'width 1s ease' }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          <p style={{ fontSize:14, lineHeight:1.7, margin:0, color:'#c9d1d9' }}>{result.verdict}</p>
+          <div style={{ display:'flex', gap:8, marginTop:16 }}>
+            <button onClick={() => window.open(`${API_BASE_URL}/report/${result.job_id}`, '_blank')}
+              style={{ background:'#00d4d4', color:'#0a1628', border:'none', borderRadius:5, padding:'9px 16px', fontSize:13, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', gap:6 }}>
+              <Download size={13} /> PDF Report
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
 }
 
-// ── Scanning stage list — replaces spinning ring ──────────────────────────────
-function ScanningPanel({ fileName }) {
+// ── Stage breakdown with explanations ─────────────────────────────────────────
+function StageBreakdown({ stageScores }) {
+  const [expanded, setExpanded] = useState(null);
+  if (!stageScores) return null;
+
+  const entries = Object.entries(stageScores).filter(([k, v]) =>
+    v !== null && v !== undefined && STAGE_DISPLAY[k]
+  );
+  if (!entries.length) return null;
+
   return (
-    <div style={{
-      background: '#0d1c35', border: '1px solid #1e2d4a', borderRadius: 4,
-      padding: '48px 32px', textAlign: 'center', position: 'relative', overflow: 'hidden',
-    }}>
-      {/* Moving scanline */}
-      <div style={{
-        position: 'absolute', top: 0, left: 0, right: 0, height: 2,
-        background: 'linear-gradient(90deg, transparent, #00d4d4, transparent)',
-        animation: 'scanline 2.2s ease-in-out infinite',
-      }} />
-      <div style={{
-        width: 64, height: 64, borderRadius: '50%', background: 'rgba(0,212,212,0.1)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 24px',
-        animation: 'pulse-ring 1.8s ease-out infinite',
-      }}>
-        <Loader2 size={28} color="#00d4d4" style={{ animation: 'spin 1.2s linear infinite' }} />
+    <div style={{ marginBottom:20 }}>
+      <h3 style={{ fontSize:12, color:'#586069', letterSpacing:1, textTransform:'uppercase', marginBottom:12 }}>
+        Stage breakdown — click any stage for explanation
+      </h3>
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(140px, 1fr))', gap:10 }}>
+        {entries.map(([key, val]) => {
+          const isExp = expanded === key;
+          const color = val >= 65 ? '#ef4444' : val >= 40 ? '#f59e0b' : '#10b981';
+          return (
+            <div key={key} onClick={() => setExpanded(isExp ? null : key)}
+              style={{
+                background:'#0d1c35', border:`1px solid ${isExp ? '#2dd4bf' : '#1e2d4a'}`,
+                borderRadius:6, padding:14, cursor:'pointer', transition:'border-color 0.2s',
+              }}>
+              <div style={{ fontSize:11, color:'#586069', marginBottom:6, textTransform:'uppercase', letterSpacing:0.5 }}>
+                {STAGE_DISPLAY[key]}
+              </div>
+              <div style={{ fontFamily:'monospace', fontSize:22, fontWeight:700, color, marginBottom:6 }}>
+                {typeof val === 'number' ? `${val}%` : val}
+              </div>
+              <div style={{ height:3, background:'#1e2d4a', borderRadius:2, overflow:'hidden' }}>
+                <div style={{ height:'100%', width:`${Math.min(val,100)}%`, background:color, borderRadius:2 }} />
+              </div>
+              {isExp && STAGE_EXPLAIN[key] && (
+                <div style={{ marginTop:10, fontSize:12, color:'#8b949e', lineHeight:1.5, borderTop:'1px solid #1e2d4a', paddingTop:10 }}>
+                  {STAGE_EXPLAIN[key]}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
-      <div style={{ fontFamily: 'monospace', fontSize: 13, color: '#00d4d4', letterSpacing: 1.5, marginBottom: 8, textTransform: 'uppercase' }}>
-        Running forensic analysis
-      </div>
-      <div style={{ color: '#8b949e', fontSize: 14 }}>{fileName}</div>
     </div>
+  );
+}
+
+// ── Lightbox ──────────────────────────────────────────────────────────────────
+function Lightbox({ src, onClose }) {
+  if (!src) return null;
+  return (
+    <div onClick={onClose} style={{
+      position:'fixed', inset:0, background:'rgba(0,0,0,0.9)', zIndex:1000,
+      display:'flex', alignItems:'center', justifyContent:'center', cursor:'zoom-out',
+    }}>
+      <img src={src} alt="" style={{ maxWidth:'92vw', maxHeight:'92vh', borderRadius:8, boxShadow:'0 24px 80px rgba(0,0,0,0.6)' }} />
+      <button onClick={onClose} style={{
+        position:'absolute', top:20, right:20, background:'rgba(255,255,255,0.1)',
+        border:'none', borderRadius:'50%', width:36, height:36, cursor:'pointer',
+        color:'#fff', fontSize:18, display:'flex', alignItems:'center', justifyContent:'center',
+      }}><X size={16} /></button>
+    </div>
+  );
+}
+
+// ── Graphs grid ───────────────────────────────────────────────────────────────
+function GraphsGrid({ graphs, jobId }) {
+  const [lightbox, setLightbox] = useState(null);
+  if (!graphs?.length) return null;
+
+  const getSrc = (g) => {
+    if (g.filename && jobId) return `${API_BASE_URL}/graph/${jobId}/${g.filename}`;
+    if (g.image_b64)         return `data:image/png;base64,${g.image_b64}`;
+    return null;
+  };
+
+  return (
+    <>
+      <Lightbox src={lightbox} onClose={() => setLightbox(null)} />
+      <div style={{ marginBottom:20 }}>
+        <h3 style={{ fontSize:12, color:'#586069', letterSpacing:1, textTransform:'uppercase', marginBottom:12 }}>
+          Visual analysis — click to expand
+        </h3>
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
+          {graphs.map((g, i) => {
+            const src = getSrc(g);
+            return (
+              <div key={i} style={{ background:'#0d1c35', border:'1px solid #1e2d4a', borderRadius:6, overflow:'hidden', cursor: src ? 'zoom-in' : 'default' }}
+                onClick={() => src && setLightbox(src)}>
+                <div style={{ aspectRatio:'16/10', background:'#0a1628', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                  {src
+                    ? <img src={src} alt={g.title} style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+                    : <span style={{ fontSize:11, color:'#3d5070', fontFamily:'monospace' }}>[ loading ]</span>
+                  }
+                </div>
+                <div style={{ padding:'10px 12px' }}>
+                  <div style={{ fontSize:12, fontWeight:600, color:'#e6edf3', marginBottom:3 }}>{g.title}</div>
+                  <div style={{ fontSize:11, color:'#586069', lineHeight:1.5 }}>{g.description}</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </>
   );
 }
 
 // ── Main app ──────────────────────────────────────────────────────────────────
-export default function VeritasApp() {
-  const [stage, setStage] = useState('upload');
-  const [file, setFile] = useState(null);
+export default function DeepfakeDetectorApp() {
+  const [stage, setStage]       = useState('upload');
+  const [file, setFile]         = useState(null);
   const [progress, setProgress] = useState(0);
-  const [result, setResult] = useState(null);
+  const [result, setResult]     = useState(null);
   const [errorMsg, setErrorMsg] = useState('');
   const [dragActive, setDragActive] = useState(false);
-  const [isMock, setIsMock] = useState(false);
-  const fileInputRef = useRef(null);
-  const progressRef = useRef(null);
+  const fileInputRef       = useRef(null);
+  const progressIntervalRef = useRef(null);
 
   const handleFileSelect = useCallback((f) => { if (f) setFile(f); }, []);
   const handleDrag = (e) => {
@@ -168,157 +310,120 @@ export default function VeritasApp() {
 
   const startAnalysis = async () => {
     if (!file) return;
-    setStage('scanning'); setProgress(0); setErrorMsg(''); setIsMock(false);
-    progressRef.current = setInterval(() => setProgress(p => p < 90 ? p + Math.random() * 7 : p), 500);
+    setStage('scanning'); setProgress(0); setErrorMsg('');
+    progressIntervalRef.current = setInterval(() => {
+      setProgress(p => p < 92 ? p + Math.random() * 8 : p);
+    }, 400);
     try {
       const fd = new FormData();
       fd.append('file', file);
       const res = await fetch(`${API_BASE_URL}/analyze`, {
-        method: 'POST',
-        headers: { 'ngrok-skip-browser-warning': 'true' },
-        body: fd,
+        method:'POST', headers:{'ngrok-skip-browser-warning':'true'}, body:fd,
       });
-      if (!res.ok) throw new Error(`${res.status}`);
+      if (!res.ok) throw new Error(`Server returned ${res.status}`);
       const data = await res.json();
-      clearInterval(progressRef.current); setProgress(100);
+      clearInterval(progressIntervalRef.current);
+      setProgress(100);
       if (data.error) { setTimeout(() => { setErrorMsg(data.error); setStage('error'); }, 400); return; }
       setTimeout(() => { setResult(data); setStage('results'); }, 500);
-    } catch {
-      clearInterval(progressRef.current); setProgress(100); setIsMock(true);
-      setTimeout(() => { setResult({ ...MOCK_RESULT, filename: file.name }); setStage('results'); }, 500);
+    } catch (err) {
+      clearInterval(progressIntervalRef.current);
+      setErrorMsg(`Could not reach the analysis server. It may be waking up — please wait 60 seconds and try again. (${err.message})`);
+      setStage('error');
     }
   };
 
-  const reset = () => { setStage('upload'); setFile(null); setProgress(0); setResult(null); setErrorMsg(''); setIsMock(false); };
-  const downloadPDF = () => {
-    if (isMock) { alert('PDF requires a live server connection.'); return; }
-    window.open(`${API_BASE_URL}/report/${result.job_id}`, '_blank');
-  };
-
-  const cfg = result ? (THREAT[result.threat_level] || THREAT.MODERATE) : null;
+  const reset = () => { setStage('upload'); setFile(null); setProgress(0); setResult(null); setErrorMsg(''); };
 
   return (
-    <div style={{ minHeight: '100vh', background: '#0a1628', color: '#e6edf3', fontFamily: "'Inter',-apple-system,sans-serif", overflowX: 'hidden' }}>
+    <div style={{ minHeight:'100vh', background:'#0a1628', color:'#e6edf3', fontFamily:"'Inter', -apple-system, sans-serif", position:'relative' }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
-        *{box-sizing:border-box;margin:0;padding:0;}
-        ::selection{background:#2dd4bf;color:#0a1628;}
-        @keyframes floatBubble{
-          0%,100%{transform:translateY(0) scale(1);}
-          33%{transform:translateY(-18px) scale(1.02);}
-          66%{transform:translateY(10px) scale(0.98);}
-        }
-        @keyframes scanline   { 0% { transform: translateY(0); opacity: 0.3; } 50% { opacity: 1; } 100% { transform: translateY(400px); opacity: 0.3; } }
-        @keyframes pulse-ring { 0% { box-shadow: 0 0 0 0 rgba(0,212,212,0.4); } 100% { box-shadow: 0 0 0 16px rgba(0,212,212,0); } }
-        @keyframes spin       { to { transform: rotate(360deg); } }
-        @keyframes fadeIn{from{opacity:0;transform:translateY(12px);}to{opacity:1;transform:translateY(0);}}
-        @keyframes revealLine{from{width:0;}to{width:100%;}}
-        .btn-primary{background:#2dd4bf;color:#fff;border:none;border-radius:6px;padding:11px 22px;font-size:13px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:7px;transition:all 0.2s;letter-spacing:0.2px;}
-        .btn-primary:hover{background:#14b8a6;box-shadow:0 4px 16px rgba(45,212,191,0.3);}
-        .btn-ghost{background:transparent;color:#8b949e;border:1px solid #1e2d4a;border-radius:6px;padding:11px 18px;font-size:13px;cursor:pointer;transition:all 0.2s;}
-        .btn-ghost:hover{border-color:#2dd4bf;color:#e6edf3;}
-        .card{background:#0d1c35;border:1px solid #1e2d4a;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,0.3);}
-        .mono{font-family:'JetBrains Mono',monospace;}
+        * { box-sizing:border-box; }
+        ::selection { background:#00d4d4; color:#0a1628; }
+        @keyframes floatBubble { 0%,100%{transform:translateY(0) scale(1);} 33%{transform:translateY(-20px) scale(1.02);} 66%{transform:translateY(12px) scale(0.98);} }
+        @keyframes scanline { 0%{transform:translateY(0);opacity:0.3;} 50%{opacity:1;} 100%{transform:translateY(400px);opacity:0.3;} }
+        @keyframes pulse-ring { 0%{box-shadow:0 0 0 0 rgba(0,212,212,0.4);} 100%{box-shadow:0 0 0 16px rgba(0,212,212,0);} }
+        @keyframes spin { to{transform:rotate(360deg);} }
+        @keyframes fadeIn { from{opacity:0;transform:translateY(10px);} to{opacity:1;transform:translateY(0);} }
       `}</style>
 
-      {/* Floating bubbles */}
       <Bubbles />
 
       {/* HEADER */}
       <header style={{
-        position: 'sticky', top: 0, zIndex: 100,
-        borderBottom: '1px solid rgba(0,0,0,0.06)',
-        padding: '14px 32px',
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        background: 'rgba(10,22,40,0.88)', backdropFilter: 'blur(16px)',
+        borderBottom:'1px solid #1e2d4a', padding:'16px 32px',
+        display:'flex', alignItems:'center', justifyContent:'space-between',
+        background:'rgba(10,22,40,0.88)', backdropFilter:'blur(12px)',
+        position:'sticky', top:0, zIndex:100,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <ShieldAlert size={20} color="#2dd4bf" />
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-            <span style={{ fontSize: 10, fontWeight: 600, color: '#2dd4bf', letterSpacing: 2, textTransform: 'uppercase', lineHeight: 1 }}>AlgorivX.AI</span>
-            <span style={{ fontWeight: 800, fontSize: 22, letterSpacing: -0.5, color: '#e6edf3', lineHeight: 1 }}>Darpan</span>
+        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+          <ShieldAlert size={20} color="#00d4d4" />
+          <div style={{ display:'flex', flexDirection:'column', gap:1 }}>
+            <span style={{ fontSize:9, fontWeight:600, color:'#00d4d4', letterSpacing:2, textTransform:'uppercase', lineHeight:1 }}>AlgorivX.AI</span>
+            <span style={{ fontWeight:800, fontSize:20, letterSpacing:-0.5, color:'#e6edf3', lineHeight:1 }}>Darpan</span>
           </div>
-          <span className="mono" style={{ fontSize: 10, color: '#2dd4bf', border: '1px solid #1e2d4a', padding: '2px 7px', borderRadius: 4, alignSelf: 'flex-end', marginBottom: 2 }}>DEEP FAKE DETECTOR v1</span>
+          <span style={{ fontFamily:'monospace', fontSize:10, color:'#586069', border:'1px solid #1e2d4a', padding:'2px 6px', borderRadius:3, alignSelf:'flex-end', marginBottom:1 }}>
+            FORENSIC ENGINE v5
+          </span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 20, fontSize: 13, color: '#8b949e' }}>
-          {result && <button onClick={reset} className="btn-ghost" style={{ padding: '7px 14px', fontSize: 12 }}>New analysis</button>}
-          {result && <button onClick={downloadPDF} className="btn-primary" style={{ padding: '7px 14px', fontSize: 12 }}>
-            <Download size={13} /> PDF Report
-          </button>}
-          
-          <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'linear-gradient(135deg,#2dd4bf,#0891b2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#fff' }}>U</div>
+        <div style={{ display:'flex', alignItems:'center', gap:14, fontSize:13, color:'#8b949e' }}>
+          {result && <button onClick={reset} style={{ background:'transparent', color:'#8b949e', border:'1px solid #1e2d4a', borderRadius:5, padding:'7px 12px', fontSize:12, cursor:'pointer' }}>New analysis</button>}
+          <span>Pro Plan</span>
+          <div style={{ width:28, height:28, borderRadius:'50%', background:'#1e2d4a', display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:600 }}>U</div>
         </div>
       </header>
 
-      <main style={{ position: 'relative', zIndex: 1, maxWidth: 1100, margin: '0 auto', padding: '0 24px 48px' }}>
+      <main style={{ maxWidth:960, margin:'0 auto', padding:'40px 24px 60px', position:'relative', zIndex:1 }}>
 
         {/* ── UPLOAD ── */}
         {stage === 'upload' && (
-          <div style={{ animation: 'fadeIn 0.4s ease', paddingTop: 64 }}>
-            <div style={{ textAlign: 'center', marginBottom: 48 }}>
-              <div className="mono" style={{ fontSize: 11, color: '#2dd4bf', letterSpacing: 3, marginBottom: 16, textTransform: 'uppercase' }}>AlgorivX.AI · Darpan · Multi-stage forensic analysis</div>
-              <h1 style={{ fontSize: 42, fontWeight: 700, letterSpacing: -1.5, lineHeight: 1.1, marginBottom: 16, color: '#e6edf3' }}>
-                Is this real<span style={{ color: '#2dd4bf' }}>?</span>
-              </h1>
-              <p style={{ color: '#8b949e', fontSize: 15, maxWidth: 480, margin: '0 auto' }}>
-                Upload an image, video, audio clip, or document. Our forensic engine runs frequency analysis, face forensics, and deep learning inference — all in one pass.
+          <div style={{ animation:'fadeIn 0.4s ease' }}>
+            <div style={{ marginBottom:32 }}>
+              <h1 style={{ fontSize:28, fontWeight:700, margin:0, letterSpacing:-0.5 }}>Submit a file for analysis</h1>
+              <p style={{ color:'#8b949e', fontSize:15, marginTop:8 }}>
+                Images, video, audio, and documents. Multi-stage forensic pipeline — frequency analysis, face forensics, deep learning.
               </p>
             </div>
 
-            {/* Drop zone */}
-            <div
-              onDragEnter={handleDrag} onDragLeave={handleDrag} onDragOver={handleDrag} onDrop={handleDrop}
+            <div onDragEnter={handleDrag} onDragLeave={handleDrag} onDragOver={handleDrag} onDrop={handleDrop}
               onClick={() => fileInputRef.current?.click()}
               style={{
-                border: `2px dashed ${dragActive ? '#2dd4bf' : file ? 'rgba(45,212,191,0.5)' : 'rgba(0,0,0,0.1)'}`,
-                borderRadius: 14, padding: file ? '32px 24px' : '64px 24px', textAlign: 'center', cursor: 'pointer',
-                background: dragActive ? 'rgba(45,212,191,0.06)' : 'rgba(13,28,53,0.8)',
-                transition: 'all 0.2s ease',
-                backdropFilter: 'blur(8px)',
-                boxShadow: dragActive ? '0 0 0 4px rgba(45,212,191,0.1)' : 'none',
-              }}
-            >
-              <input ref={fileInputRef} type="file" style={{ display: 'none' }}
+                border:`2px dashed ${dragActive ? '#00d4d4' : '#1e2d4a'}`, borderRadius:8,
+                padding:'56px 24px', textAlign:'center', cursor:'pointer',
+                background: dragActive ? 'rgba(0,212,212,0.04)' : '#0d1c35', transition:'all 0.15s ease',
+              }}>
+              <input ref={fileInputRef} type="file" style={{ display:'none' }}
                 onChange={e => handleFileSelect(e.target.files?.[0])}
-                accept=".jpg,.jpeg,.png,.bmp,.tiff,.webp,.mp4,.avi,.mov,.mkv,.webm,.mp3,.wav,.aac,.flac,.ogg,.m4a,.pdf,.docx,.txt"
-              />
-              {file
-                ? <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
-                    <div style={{ width: 44, height: 44, borderRadius: '50%', background: 'rgba(45,212,191,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 6 }}>
-                      <FileImage size={20} color="#2dd4bf" />
-                    </div>
-                    <div style={{ fontSize: 15, fontWeight: 600, color: '#e6edf3' }}>{file.name}</div>
-                    <div className="mono" style={{ fontSize: 12, color: '#586069' }}>{formatBytes(file.size)}</div>
-                  </div>
-                : <>
-                    <Upload size={28} color="rgba(45,212,191,0.6)" style={{ marginBottom: 14 }} />
-                    <div style={{ fontSize: 16, fontWeight: 500, marginBottom: 6, color: '#e6edf3' }}>Drop a file here, or click to browse</div>
-                    <div style={{ fontSize: 13, color: '#586069' }}>JPG · PNG · MP4 · MOV · MP3 · WAV · PDF · DOCX — up to 500 MB</div>
-                  </>
-              }
+                accept=".jpg,.jpeg,.png,.bmp,.tiff,.webp,.mp4,.avi,.mov,.mkv,.webm,.mp3,.wav,.aac,.flac,.ogg,.m4a,.pdf,.docx,.txt" />
+              <Upload size={32} color="#00d4d4" style={{ marginBottom:16 }} />
+              <div style={{ fontSize:16, fontWeight:600, marginBottom:6 }}>
+                {file ? file.name : 'Drop a file here, or click to browse'}
+              </div>
+              <div style={{ fontSize:13, color:'#586069' }}>
+                {file ? formatBytes(file.size) : 'JPG · PNG · MP4 · MOV · MP3 · WAV · PDF · DOCX — up to 500 MB'}
+              </div>
             </div>
 
             {file && (
-              <div style={{ display: 'flex', gap: 10, marginTop: 16, justifyContent: 'center' }}>
-                <button className="btn-primary" onClick={startAnalysis}>Run analysis <ChevronRight size={15} /></button>
-                <button className="btn-ghost" onClick={() => setFile(null)}>Clear</button>
+              <div style={{ marginTop:16, display:'flex', gap:10 }}>
+                <button onClick={startAnalysis} style={{ background:'#00d4d4', color:'#0a1628', border:'none', borderRadius:5, padding:'12px 24px', fontSize:14, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', gap:8 }}>
+                  Run analysis <ChevronRight size={16} />
+                </button>
+                <button onClick={() => setFile(null)} style={{ background:'transparent', color:'#8b949e', border:'1px solid #1e2d4a', borderRadius:5, padding:'12px 18px', fontSize:14, cursor:'pointer' }}>Clear</button>
               </div>
             )}
 
-            {/* Capability pills */}
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'center', marginTop: 48, flexWrap: 'wrap' }}>
+            <div style={{ marginTop:48, display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:12 }}>
               {[
-                { icon: FileImage, label: 'Images', desc: 'Frequency · Face · DL' },
-                { icon: FileVideo, label: 'Video', desc: 'Frame · Temporal' },
-                { icon: FileAudio, label: 'Audio', desc: 'Voice clone · TTS' },
-                { icon: FileText, label: 'Documents', desc: 'AI text detection' },
+                { icon:FileImage, label:'Images',    desc:'Frequency · Face · DL ensemble' },
+                { icon:FileVideo, label:'Video',     desc:'Frame · Temporal consistency' },
+                { icon:FileAudio, label:'Audio',     desc:'Voice clone · TTS detection' },
+                { icon:FileText,  label:'Documents', desc:'AI-generated text detection' },
               ].map(item => (
-                <div key={item.label} className="card" style={{ padding: '12px 18px', display: 'flex', alignItems: 'center', gap: 10, minWidth: 160 }}>
-                  <item.icon size={16} color="#2dd4bf" />
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: '#e6edf3' }}>{item.label}</div>
-                    <div style={{ fontSize: 11, color: '#586069', marginTop: 1 }}>{item.desc}</div>
-                  </div>
+                <div key={item.label} style={{ background:'#0d1c35', border:'1px solid #1e2d4a', borderRadius:6, padding:16 }}>
+                  <item.icon size={18} color="#00d4d4" style={{ marginBottom:10 }} />
+                  <div style={{ fontSize:13, fontWeight:600 }}>{item.label}</div>
+                  <div style={{ fontSize:12, color:'#586069', marginTop:4 }}>{item.desc}</div>
                 </div>
               ))}
             </div>
@@ -327,164 +432,89 @@ export default function VeritasApp() {
 
         {/* ── SCANNING ── */}
         {stage === 'scanning' && (
-          <div style={{ animation: 'fadeIn 0.3s ease' }}>
+          <div style={{ animation:'fadeIn 0.3s ease' }}>
             <ScanningPanel fileName={file?.name} />
           </div>
         )}
 
         {/* ── ERROR ── */}
         {stage === 'error' && (
-          <div className="card" style={{ maxWidth: 480, margin: '80px auto', padding: 40, textAlign: 'center', borderColor: 'rgba(239,68,68,0.2)', animation: 'fadeIn 0.3s ease' }}>
-            <AlertTriangle size={28} color="#ef4444" style={{ marginBottom: 16 }} />
-            <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 8, color: '#e6edf3' }}>Analysis failed</div>
-            <div style={{ fontSize: 13, color: '#8b949e', marginBottom: 24, lineHeight: 1.6 }}>
-              {errorMsg || 'Could not reach the analysis server. The server may be waking up — please wait 60 seconds and try again.'}
-            </div>
-            <button className="btn-ghost" onClick={reset}>Try another file</button>
+          <div style={{ background:'#0d1c35', border:'1px solid #ef4444', borderRadius:8, padding:32, textAlign:'center', animation:'fadeIn 0.3s ease' }}>
+            <AlertTriangle size={28} color="#ef4444" style={{ marginBottom:16 }} />
+            <div style={{ fontSize:16, fontWeight:600, marginBottom:8 }}>Analysis failed</div>
+            <div style={{ fontSize:14, color:'#8b949e', marginBottom:24 }}>{errorMsg}</div>
+            <button onClick={reset} style={{ background:'#1e2d4a', color:'#e6edf3', border:'none', borderRadius:5, padding:'10px 20px', fontSize:14, cursor:'pointer' }}>Try another file</button>
           </div>
         )}
 
         {/* ── RESULTS ── */}
         {stage === 'results' && result && (
-          <div style={{ animation: 'fadeIn 0.5s ease', paddingTop: 32 }}>
+          <div style={{ animation:'fadeIn 0.4s ease' }}>
 
-            {/* Reveal line */}
-            <div style={{ height: 2, background: 'linear-gradient(90deg, transparent, #2dd4bf 40%, transparent)', animation: 'revealLine 0.9s ease forwards', width: 0, marginBottom: 24 }} />
+            {/* Verdict hero — dominant classification */}
+            <VerdictHero result={result} />
 
-            {isMock && (
-              <div style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: 8, padding: '10px 16px', fontSize: 12, color: '#d97706', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
-                <AlertTriangle size={13} /> Demo mode — live server unreachable. Showing sample data.
+            {/* File info bar */}
+            <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', background:'#0d1c35', border:'1px solid #1e2d4a', borderRadius:6, marginBottom:20, fontFamily:'monospace', fontSize:12, color:'#586069', flexWrap:'wrap' }}>
+              {React.createElement(FILE_ICONS[result.file_type] || FileText, { size:13, color:'#00d4d4' })}
+              <span style={{ color:'#e6edf3' }}>{result.filename}</span>
+              <span>·</span><span>{result.file_type}</span>
+              <span>·</span><span>{formatBytes(result.metadata?.size_bytes)}</span>
+              <span>·</span><span>Job {result.job_id}</span>
+              {result.fusion_mode && <><span>·</span><span style={{ color:'#3d5070' }}>{result.fusion_mode}</span></>}
+            </div>
+
+            {/* Stage breakdown with explanations */}
+            <StageBreakdown stageScores={result.stage_scores} />
+
+            {/* Flagged indicators */}
+            {result.indicators?.length > 0 && (
+              <div style={{ marginBottom:20 }}>
+                <h3 style={{ fontSize:12, color:'#586069', letterSpacing:1, textTransform:'uppercase', marginBottom:12 }}>
+                  Flagged indicators ({result.indicators.length})
+                </h3>
+                <div style={{ background:'#0d1c35', border:'1px solid #1e2d4a', borderRadius:6, overflow:'hidden' }}>
+                  {result.indicators.map((ind, i) => (
+                    <div key={i} style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'10px 14px', fontSize:13, borderBottom: i < result.indicators.length-1 ? '1px solid #1e2d4a' : 'none' }}>
+                      <AlertTriangle size={13} color="#f59e0b" style={{ flexShrink:0, marginTop:1 }} />
+                      <span style={{ color:'#c9d1d9', lineHeight:1.5 }}>{ind}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
-            {/* TOP ROW: score + verdict + stage bars */}
-            <div style={{ display: 'grid', gridTemplateColumns: '200px 1fr', gap: 16, marginBottom: 16 }}>
+            {/* Visual analysis graphs */}
+            <GraphsGrid graphs={result.graphs} jobId={result.job_id} />
 
-              {/* Score card */}
-              <div className="card" style={{ padding: 24, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, borderColor: `${cfg.color}25` }}>
-                <ScoreArc score={result.final_score} threatLevel={result.threat_level} />
-                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 2, color: cfg.color, border: `1px solid ${cfg.color}40`, borderRadius: 4, padding: '3px 10px', textTransform: 'uppercase', background: `${cfg.color}08` }}>
-                  {cfg.label}
-                </div>
-              </div>
-
-              {/* Verdict + stage scores */}
-              <div className="card" style={{ padding: 24, borderColor: `${cfg.color}15` }}>
-                <p style={{ fontSize: 14, color: '#c9d1d9', lineHeight: 1.7, marginBottom: 20 }}>{result.verdict}</p>
-                {result.stage_scores && (
-                  <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Object.keys(result.stage_scores).filter(k => result.stage_scores[k] !== null).length}, 1fr)`, gap: 10 }}>
-                    {Object.entries(result.stage_scores).map(([k, v]) => v !== null && (
-                      <div key={k} style={{ background: '#162040', borderRadius: 8, padding: '12px 14px', borderLeft: `3px solid ${v >= 50 ? '#d97706' : '#059669'}` }}>
-                        <div style={{ fontSize: 10, color: '#586069', textTransform: 'capitalize', marginBottom: 4, letterSpacing: 0.5 }}>{k.replace(/_/g,' ')}</div>
-                        <div className="mono" style={{ fontSize: 22, fontWeight: 700, color: v >= 50 ? '#d97706' : '#059669' }}>{v}%</div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* MIDDLE ROW: graphs + indicators */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 16, marginBottom: 16 }}>
-
-              {/* Plain graph grid */}
-              <div className="card" style={{ padding: 20 }}>
-                <div style={{ fontSize: 11, color: '#586069', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 14 }}>Visual analysis</div>
-                {result.graphs?.length > 0
-                  ? <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                      {result.graphs.map((g, i) => {
-                        const src = g.filename && result.job_id
-                          ? `${API_BASE_URL}/graph/${result.job_id}/${g.filename}`
-                          : g.image_b64 ? `data:image/png;base64,${g.image_b64}` : null;
-                        return (
-                          <div key={i} style={{ background: '#0d1c35', border: '1px solid #1e2d4a', borderRadius: 6, overflow: 'hidden' }}>
-                            <div style={{ aspectRatio: '16/10', background: '#0a1628', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                              {src
-                                ? <img src={src} alt={g.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                : <span style={{ fontSize: 11, color: '#3d5070', fontFamily: 'monospace' }}>[ loading ]</span>
-                              }
-                            </div>
-                            <div style={{ padding: '10px 12px' }}>
-                              <div style={{ fontSize: 12, fontWeight: 600, color: '#e6edf3', marginBottom: 3 }}>{g.title}</div>
-                              <div style={{ fontSize: 11, color: '#8b949e', lineHeight: 1.5 }}>{g.description}</div>
-                            </div>
-                          </div>
-                        );
-                      })}
+            {/* Detailed metrics */}
+            {result.stats?.length > 0 && (
+              <div style={{ marginBottom:20 }}>
+                <h3 style={{ fontSize:12, color:'#586069', letterSpacing:1, textTransform:'uppercase', marginBottom:12 }}>Detailed metrics</h3>
+                <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:8 }}>
+                  {result.stats.map((s, i) => (
+                    <div key={i} style={{ background:'#0d1c35', border:'1px solid #1e2d4a', borderRadius:6, padding:'10px 12px' }}>
+                      <div style={{ fontSize:10, color:'#586069', marginBottom:3 }}>{s.label}</div>
+                      <div style={{ fontFamily:'monospace', fontSize:13, color:'#e6edf3' }}>{s.value}</div>
                     </div>
-                  : <div style={{ height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3d5070', fontSize: 13 }}>No graphs available</div>
-                }
+                  ))}
+                </div>
               </div>
+            )}
 
-              {/* Indicators */}
-              <div className="card" style={{ padding: 20, display: 'flex', flexDirection: 'column' }}>
-                <div style={{ fontSize: 11, color: '#586069', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 14 }}>
-                  Flagged indicators {result.indicators?.length > 0 && <span style={{ color: '#d97706' }}>({result.indicators.length})</span>}
-                </div>
-                <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {result.indicators?.length > 0
-                    ? result.indicators.map((ind, i) => (
-                        <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '8px 10px', background: 'rgba(217,119,6,0.04)', border: '1px solid rgba(217,119,6,0.12)', borderRadius: 6 }}>
-                          <AlertTriangle size={12} color="#d97706" style={{ flexShrink: 0, marginTop: 1 }} />
-                          <span style={{ fontSize: 12, color: '#c9d1d9', lineHeight: 1.5 }}>{ind}</span>
-                        </div>
-                      ))
-                    : <div style={{ fontSize: 13, color: '#586069', textAlign: 'center', marginTop: 40 }}>No suspicious indicators detected</div>
-                  }
-                </div>
+            {/* File evidence */}
+            <div>
+              <h3 style={{ fontSize:12, color:'#586069', letterSpacing:1, textTransform:'uppercase', marginBottom:12 }}>
+                <Lock size={11} style={{ display:'inline', marginRight:5, verticalAlign:-1 }} /> File evidence
+              </h3>
+              <div style={{ background:'#0d1c35', border:'1px solid #1e2d4a', borderRadius:6, padding:14, fontFamily:'monospace', fontSize:11, color:'#586069', lineHeight:2 }}>
+                <div><span style={{ color:'#3d5070', marginRight:8 }}>MD5</span>{result.metadata?.md5}</div>
+                <div><span style={{ color:'#3d5070', marginRight:8 }}>SHA256</span>{result.metadata?.sha256}</div>
+                <div><span style={{ color:'#3d5070', marginRight:8 }}>MIME</span>{result.metadata?.mime}</div>
+                <div><span style={{ color:'#3d5070', marginRight:8 }}>TIME</span>{result.metadata?.analyzed_at}</div>
               </div>
             </div>
 
-            {/* BOTTOM ROW: metrics + file evidence */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-
-              {result.stats?.length > 0 && (
-                <div className="card" style={{ padding: 20 }}>
-                  <div style={{ fontSize: 11, color: '#586069', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 14 }}>Detailed metrics</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                    {result.stats.map((s, i) => (
-                      <div key={i} style={{ padding: '10px 12px', background: '#0d1c35', borderRadius: 6 }}>
-                        <div style={{ fontSize: 10, color: '#586069', marginBottom: 3 }}>{s.label}</div>
-                        <div className="mono" style={{ fontSize: 13, color: '#e6edf3' }}>{s.value}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* File evidence */}
-              <div className="card" style={{ padding: 20 }}>
-                <div style={{ fontSize: 11, color: '#586069', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <Lock size={11} /> File evidence
-                </div>
-                <div className="mono" style={{ fontSize: 11, color: '#8b949e', lineHeight: 2.2 }}>
-                  <div style={{ display: 'flex', gap: 12 }}>
-                    <span style={{ color: '#3d5070', minWidth: 56 }}>FILE</span>
-                    <span style={{ color: '#e6edf3' }}>{result.filename}</span>
-                  </div>
-                  <div style={{ display: 'flex', gap: 12 }}>
-                    <span style={{ color: '#3d5070', minWidth: 56 }}>SIZE</span>
-                    <span>{formatBytes(result.metadata?.size_bytes)}</span>
-                  </div>
-                  <div style={{ display: 'flex', gap: 12 }}>
-                    <span style={{ color: '#3d5070', minWidth: 56 }}>MIME</span>
-                    <span>{result.metadata?.mime}</span>
-                  </div>
-                  <div style={{ display: 'flex', gap: 12 }}>
-                    <span style={{ color: '#3d5070', minWidth: 56 }}>MD5</span>
-                    <span style={{ wordBreak: 'break-all', fontSize: 10 }}>{result.metadata?.md5}</span>
-                  </div>
-                  <div style={{ display: 'flex', gap: 12 }}>
-                    <span style={{ color: '#3d5070', minWidth: 56 }}>JOB</span>
-                    <span>{result.job_id}</span>
-                  </div>
-                  <div style={{ display: 'flex', gap: 12 }}>
-                    <span style={{ color: '#3d5070', minWidth: 56 }}>TIME</span>
-                    <span style={{ fontSize: 10 }}>{result.metadata?.analyzed_at ? new Date(result.metadata.analyzed_at).toLocaleString() : '—'}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
           </div>
         )}
       </main>
