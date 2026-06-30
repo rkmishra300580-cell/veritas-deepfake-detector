@@ -6,6 +6,21 @@ import { Upload, FileImage, FileVideo, FileAudio, FileText, Download,
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'https://dfd-back-exc0.onrender.com';
 
+// ── Surface elevation tokens ──────────────────────────────────────────────────
+// Previously page bg (#070f1f) and card bg (#13294a) were only ~3 points apart in
+// lightness — contrast ratio 1.07:1, visually almost identical. Header, stat tiles,
+// and graph thumbnails all merged into the page background as a result.
+// Replaced with a real elevation ladder: same navy hue family, increasing lightness
+// per layer, so the eye can tell what's "on top of" what.
+const SURFACE = {
+  page:    '#070f1f',  // outer page — recedes
+  header:  '#0f213d',  // sticky header — distinct from page
+  card:    '#13294a',  // stat tiles, indicator rows, file info bar
+  raised:  '#18305a',  // graph thumbnails, expanded/hover states — most "raised"
+  border:  '#234268',  // card borders — was #234268, barely visible against old bg
+  borderHeader: '#1e3a5f',
+};
+
 // ── Classification config (new three-class taxonomy) ─────────────────────────
 const CLF_CONFIG = {
   REAL:          { color: '#10b981', bg: 'rgba(16,185,129,0.08)',  border: 'rgba(16,185,129,0.3)',  label: 'REAL',          icon: '✓' },
@@ -32,6 +47,20 @@ const STAGE_DISPLAY = {
   deep_learning:    'DL Deepfake',
   dl_ai_generated:  'DL AI-Gen',
   exif_edit_score:  'EXIF Edit Signal',
+};
+
+// Plain-language names for the verdict explanation sentence — technical stage
+// names (DL Deepfake, EXIF Edit Signal) read fine in a tile, but sound like
+// jargon in a sentence aimed at a non-technical user. Falls back to
+// STAGE_DISPLAY's name if a key isn't listed here.
+const STAGE_PLAIN_NAME = {
+  frequency:        'image-pattern check',
+  face_forensics:   'face match check',
+  manipulation:     'editing-traces check',
+  vehicle_damage:   'damage-photo check',
+  deep_learning:    'face-swap detector',
+  dl_ai_generated:  'AI-image detector',
+  exif_edit_score:  'editing-software check',
 };
 
 // Stage explanations shown to non-technical users
@@ -86,7 +115,7 @@ function Bubbles() {
 function ScanningPanel({ fileName }) {
   return (
     <div style={{
-      background:'#0d1c35', border:'1px solid #1e2d4a', borderRadius:6,
+      background:'#13294a', border:'1px solid #234268', borderRadius:6,
       padding:'48px 32px', textAlign:'center', position:'relative', overflow:'hidden',
     }}>
       <div style={{
@@ -133,6 +162,28 @@ function VerdictHero({ result }) {
     tracks.push({ label:'Real',        val:result.real_score,   color:'#10b981' });
   }
 
+  // ── Plain-language headline explanation ─────────────────────────────────
+  // Addresses real user confusion: the headline is a blended composite of
+  // several stage scores, so it often doesn't match the single highest stage
+  // tile (e.g. a 77% face-swap-detector score producing a 65% headline).
+  // This computes which stage score is doing the most work and explains the
+  // gap in one plain sentence, in non-technical language. Only shown when
+  // the gap is meaningful (>8 points) — otherwise the headline already
+  // tracks the dominant signal closely enough that an explanation adds noise.
+  let dominantExplain = null;
+  if (result.stage_scores) {
+    const numericStages = Object.entries(result.stage_scores)
+      .filter(([k, v]) => typeof v === 'number' && STAGE_DISPLAY[k]);
+    if (numericStages.length > 0) {
+      const [domKey, domVal] = numericStages.reduce((a, b) => (b[1] > a[1] ? b : a));
+      const gap = Math.abs(domVal - domScore);
+      if (gap > 8) {
+        const plainName = STAGE_PLAIN_NAME[domKey] || STAGE_DISPLAY[domKey];
+        dominantExplain = `This score combines several checks, not just one. The strongest single signal here was our ${plainName}, which was ${domVal.toFixed(0)}% confident. The other checks found weaker support, which brought the overall score to ${domScore.toFixed(0)}%.`;
+      }
+    }
+  }
+
   return (
     <div style={{
       background:cfg.bg, border:`1px solid ${cfg.border}`, borderRadius:8,
@@ -157,7 +208,7 @@ function VerdictHero({ result }) {
             {cfg.icon} {cfg.label}
           </div>
           {riskLevel && (
-            <div style={{ marginTop:6, fontSize:11, color:'#586069', letterSpacing:1 }}>
+            <div style={{ marginTop:6, fontSize:11, color:'#8da3c2', letterSpacing:1 }}>
               {riskLevel} RISK
             </div>
           )}
@@ -172,7 +223,7 @@ function VerdictHero({ result }) {
                   <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, color:'#8b949e', marginBottom:4 }}>
                     <span>{t.label}</span><span style={{ color:t.color, fontWeight:700 }}>{t.val.toFixed(1)}%</span>
                   </div>
-                  <div style={{ height:5, background:'#1e2d4a', borderRadius:3, overflow:'hidden' }}>
+                  <div style={{ height:5, background:'#234268', borderRadius:3, overflow:'hidden' }}>
                     <div style={{ height:'100%', width:`${t.val}%`, background:t.color, borderRadius:3, transition:'width 1s ease' }} />
                   </div>
                 </div>
@@ -180,9 +231,15 @@ function VerdictHero({ result }) {
             </div>
           )}
           <p style={{ fontSize:14, lineHeight:1.7, margin:0, color:'#c9d1d9' }}>{result.verdict}</p>
+          {dominantExplain && (
+            <div style={{ marginTop:12, paddingTop:12, borderTop:'1px solid #234268', display:'flex', gap:8, alignItems:'flex-start' }}>
+              <span style={{ fontSize:14, color:'#5a7299', lineHeight:1.6, flexShrink:0 }}>ⓘ</span>
+              <p style={{ fontSize:13, lineHeight:1.6, margin:0, color:'#8da3c2' }}>{dominantExplain}</p>
+            </div>
+          )}
           <div style={{ display:'flex', gap:8, marginTop:16 }}>
             <button onClick={() => window.open(`${API_BASE_URL}/report/${result.job_id}`, '_blank')}
-              style={{ background:'#00d4d4', color:'#0a1628', border:'none', borderRadius:5, padding:'9px 16px', fontSize:13, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', gap:6 }}>
+              style={{ background:'#00d4d4', color:'#070f1f', border:'none', borderRadius:5, padding:'9px 16px', fontSize:13, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', gap:6 }}>
               <Download size={13} /> PDF Report
             </button>
           </div>
@@ -202,9 +259,17 @@ function StageBreakdown({ stageScores }) {
   );
   if (!entries.length) return null;
 
+  // Mark the tile with the highest score as the "main signal" — gives the
+  // user a visual anchor for which check is driving the verdict, since the
+  // headline number is a blend and won't match any single tile exactly.
+  const numericEntries = entries.filter(([, v]) => typeof v === 'number');
+  const domKey = numericEntries.length
+    ? numericEntries.reduce((a, b) => (b[1] > a[1] ? b : a))[0]
+    : null;
+
   return (
     <div style={{ marginBottom:20 }}>
-      <h3 style={{ fontSize:12, color:'#586069', letterSpacing:1, textTransform:'uppercase', marginBottom:12 }}>
+      <h3 style={{ fontSize:12, color:'#8da3c2', letterSpacing:1, textTransform:'uppercase', marginBottom:12 }}>
         Stage breakdown — click any stage for explanation
       </h3>
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(140px, 1fr))', gap:10 }}>
@@ -214,20 +279,32 @@ function StageBreakdown({ stageScores }) {
           return (
             <div key={key} onClick={() => setExpanded(isExp ? null : key)}
               style={{
-                background:'#0d1c35', border:`1px solid ${isExp ? '#2dd4bf' : '#1e2d4a'}`,
+                background: key === domKey ? '#18305a' : '#13294a',
+                border:`1px solid ${isExp ? '#2dd4bf' : (key === domKey ? '#3a5a8a' : '#234268')}`,
                 borderRadius:6, padding:14, cursor:'pointer', transition:'border-color 0.2s',
+                position:'relative',
               }}>
-              <div style={{ fontSize:11, color:'#586069', marginBottom:6, textTransform:'uppercase', letterSpacing:0.5 }}>
+              {key === domKey && (
+                <span style={{
+                  position:'absolute', top:10, right:10, fontSize:9, fontWeight:700,
+                  letterSpacing:0.5, color:'#7fd4d4', background:'rgba(0,212,212,0.1)',
+                  border:'1px solid rgba(0,212,212,0.25)', borderRadius:3, padding:'2px 6px',
+                  textTransform:'uppercase',
+                }}>
+                  Main signal
+                </span>
+              )}
+              <div style={{ fontSize:11, color:'#8da3c2', marginBottom:6, textTransform:'uppercase', letterSpacing:0.5 }}>
                 {STAGE_DISPLAY[key]}
               </div>
               <div style={{ fontFamily:'monospace', fontSize:22, fontWeight:700, color, marginBottom:6 }}>
                 {typeof val === 'number' ? `${val}%` : val}
               </div>
-              <div style={{ height:3, background:'#1e2d4a', borderRadius:2, overflow:'hidden' }}>
+              <div style={{ height:3, background:'#234268', borderRadius:2, overflow:'hidden' }}>
                 <div style={{ height:'100%', width:`${Math.min(val,100)}%`, background:color, borderRadius:2 }} />
               </div>
               {isExp && STAGE_EXPLAIN[key] && (
-                <div style={{ marginTop:10, fontSize:12, color:'#8b949e', lineHeight:1.5, borderTop:'1px solid #1e2d4a', paddingTop:10 }}>
+                <div style={{ marginTop:10, fontSize:12, color:'#8b949e', lineHeight:1.5, borderTop:'1px solid #234268', paddingTop:10 }}>
                   {STAGE_EXPLAIN[key]}
                 </div>
               )}
@@ -272,24 +349,24 @@ function GraphsGrid({ graphs, jobId }) {
     <>
       <Lightbox src={lightbox} onClose={() => setLightbox(null)} />
       <div style={{ marginBottom:20 }}>
-        <h3 style={{ fontSize:12, color:'#586069', letterSpacing:1, textTransform:'uppercase', marginBottom:12 }}>
+        <h3 style={{ fontSize:12, color:'#8da3c2', letterSpacing:1, textTransform:'uppercase', marginBottom:12 }}>
           Visual analysis — click to expand
         </h3>
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
           {graphs.map((g, i) => {
             const src = getSrc(g);
             return (
-              <div key={i} style={{ background:'#0d1c35', border:'1px solid #1e2d4a', borderRadius:6, overflow:'hidden', cursor: src ? 'zoom-in' : 'default' }}
+              <div key={i} style={{ background:'#13294a', border:'1px solid #234268', borderRadius:6, overflow:'hidden', cursor: src ? 'zoom-in' : 'default' }}
                 onClick={() => src && setLightbox(src)}>
-                <div style={{ aspectRatio:'16/10', background:'#0a1628', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                <div style={{ aspectRatio:'16/10', background:'#070f1f', display:'flex', alignItems:'center', justifyContent:'center' }}>
                   {src
                     ? <img src={src} alt={g.title} style={{ width:'100%', height:'100%', objectFit:'cover' }} />
-                    : <span style={{ fontSize:11, color:'#3d5070', fontFamily:'monospace' }}>[ loading ]</span>
+                    : <span style={{ fontSize:11, color:'#5a7299', fontFamily:'monospace' }}>[ loading ]</span>
                   }
                 </div>
                 <div style={{ padding:'10px 12px' }}>
                   <div style={{ fontSize:12, fontWeight:600, color:'#e6edf3', marginBottom:3 }}>{g.title}</div>
-                  <div style={{ fontSize:11, color:'#586069', lineHeight:1.5 }}>{g.description}</div>
+                  <div style={{ fontSize:11, color:'#8da3c2', lineHeight:1.5 }}>{g.description}</div>
                 </div>
               </div>
             );
@@ -350,10 +427,10 @@ export default function DeepfakeDetectorApp() {
   const reset = () => { setStage('upload'); setFile(null); setProgress(0); setResult(null); setErrorMsg(''); };
 
   return (
-    <div style={{ minHeight:'100vh', background:'#0a1628', color:'#e6edf3', fontFamily:"'Inter', -apple-system, sans-serif", position:'relative' }}>
+    <div style={{ minHeight:'100vh', background:'#070f1f', color:'#e6edf3', fontFamily:"'Inter', -apple-system, sans-serif", position:'relative' }}>
       <style>{`
         * { box-sizing:border-box; }
-        ::selection { background:#00d4d4; color:#0a1628; }
+        ::selection { background:#00d4d4; color:#070f1f; }
         @keyframes floatBubble { 0%,100%{transform:translateY(0) scale(1);} 33%{transform:translateY(-20px) scale(1.02);} 66%{transform:translateY(12px) scale(0.98);} }
         @keyframes scanline { 0%{transform:translateY(0);opacity:0.3;} 50%{opacity:1;} 100%{transform:translateY(400px);opacity:0.3;} }
         @keyframes pulse-ring { 0%{box-shadow:0 0 0 0 rgba(0,212,212,0.4);} 100%{box-shadow:0 0 0 16px rgba(0,212,212,0);} }
@@ -365,9 +442,13 @@ export default function DeepfakeDetectorApp() {
 
       {/* HEADER */}
       <header style={{
-        borderBottom:'1px solid #1e2d4a', padding:'16px 32px',
+        borderBottom:'1px solid #1e3a5f', padding:'16px 32px',
         display:'flex', alignItems:'center', justifyContent:'space-between',
-        background:'rgba(10,22,40,0.88)', backdropFilter:'blur(12px)',
+        // Solid distinct surface, not a translucent overlay of the page color —
+        // the previous rgba(10,22,40,0.88) was a near-transparent version of the
+        // page background itself, so the header always blended in regardless of
+        // scroll position or backdrop blur. Now a step up the elevation ladder.
+        background:'#0f213d', backdropFilter:'blur(12px)',
         position:'sticky', top:0, zIndex:100,
       }}>
         <div style={{ display:'flex', alignItems:'center', gap:10 }}>
@@ -376,14 +457,14 @@ export default function DeepfakeDetectorApp() {
             <span style={{ fontSize:9, fontWeight:600, color:'#00d4d4', letterSpacing:2, textTransform:'uppercase', lineHeight:1 }}>AlgorivX.AI</span>
             <span style={{ fontWeight:800, fontSize:20, letterSpacing:-0.5, color:'#e6edf3', lineHeight:1 }}>Darpan</span>
           </div>
-          <span style={{ fontFamily:'monospace', fontSize:10, color:'#00d4d4', border:'1px solid #1e2d4a', padding:'2px 6px', borderRadius:3, alignSelf:'flex-end', marginBottom:1 }}>
+          <span style={{ fontFamily:'monospace', fontSize:10, color:'#00d4d4', border:'1px solid #234268', padding:'2px 6px', borderRadius:3, alignSelf:'flex-end', marginBottom:1 }}>
             FORENSIC ENGINE v 1.0
           </span>
         </div>
         <div style={{ display:'flex', alignItems:'center', gap:14, fontSize:13, color:'#8b949e' }}>
-          {result && <button onClick={reset} style={{ background:'transparent', color:'#8b949e', border:'1px solid #1e2d4a', borderRadius:5, padding:'7px 12px', fontSize:12, cursor:'pointer' }}>New analysis</button>}
+          {result && <button onClick={reset} style={{ background:'transparent', color:'#8b949e', border:'1px solid #234268', borderRadius:5, padding:'7px 12px', fontSize:12, cursor:'pointer' }}>New analysis</button>}
           <span>Pro Plan</span>
-          <div style={{ width:28, height:28, borderRadius:'50%', background:'#1e2d4a', display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:600 }}>U</div>
+          <div style={{ width:28, height:28, borderRadius:'50%', background:'#234268', display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:600 }}>U</div>
         </div>
       </header>
 
@@ -402,9 +483,9 @@ export default function DeepfakeDetectorApp() {
             <div onDragEnter={handleDrag} onDragLeave={handleDrag} onDragOver={handleDrag} onDrop={handleDrop}
               onClick={() => fileInputRef.current?.click()}
               style={{
-                border:`2px dashed ${dragActive ? '#00d4d4' : '#1e2d4a'}`, borderRadius:8,
+                border:`2px dashed ${dragActive ? '#00d4d4' : '#234268'}`, borderRadius:8,
                 padding:'56px 24px', textAlign:'center', cursor:'pointer',
-                background: dragActive ? 'rgba(0,212,212,0.04)' : '#0d1c35', transition:'all 0.15s ease',
+                background: dragActive ? 'rgba(0,212,212,0.04)' : '#13294a', transition:'all 0.15s ease',
               }}>
               <input ref={fileInputRef} type="file" style={{ display:'none' }}
                 onChange={e => handleFileSelect(e.target.files?.[0])}
@@ -413,17 +494,17 @@ export default function DeepfakeDetectorApp() {
               <div style={{ fontSize:16, fontWeight:600, marginBottom:6 }}>
                 {file ? file.name : 'Drop a file here, or click to browse'}
               </div>
-              <div style={{ fontSize:13, color:'#586069' }}>
+              <div style={{ fontSize:13, color:'#8da3c2' }}>
                 {file ? formatBytes(file.size) : 'JPG · PNG · MP4 · MOV · MP3 · WAV · PDF · DOCX — up to 500 MB'}
               </div>
             </div>
 
             {file && (
               <div style={{ marginTop:16, display:'flex', gap:10 }}>
-                <button onClick={startAnalysis} style={{ background:'#00d4d4', color:'#0a1628', border:'none', borderRadius:5, padding:'12px 24px', fontSize:14, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', gap:8 }}>
+                <button onClick={startAnalysis} style={{ background:'#00d4d4', color:'#070f1f', border:'none', borderRadius:5, padding:'12px 24px', fontSize:14, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', gap:8 }}>
                   Run analysis <ChevronRight size={16} />
                 </button>
-                <button onClick={() => setFile(null)} style={{ background:'transparent', color:'#8b949e', border:'1px solid #1e2d4a', borderRadius:5, padding:'12px 18px', fontSize:14, cursor:'pointer' }}>Clear</button>
+                <button onClick={() => setFile(null)} style={{ background:'transparent', color:'#8b949e', border:'1px solid #234268', borderRadius:5, padding:'12px 18px', fontSize:14, cursor:'pointer' }}>Clear</button>
               </div>
             )}
 
@@ -434,10 +515,10 @@ export default function DeepfakeDetectorApp() {
                 { icon:FileAudio, label:'Audio',     desc:'Voice clone · TTS detection' },
                 { icon:FileText,  label:'Documents', desc:'AI-generated text detection' },
               ].map(item => (
-                <div key={item.label} style={{ background:'#0d1c35', border:'1px solid #1e2d4a', borderRadius:6, padding:16 }}>
+                <div key={item.label} style={{ background:'#13294a', border:'1px solid #234268', borderRadius:6, padding:16 }}>
                   <item.icon size={18} color="#00d4d4" style={{ marginBottom:10 }} />
                   <div style={{ fontSize:13, fontWeight:600 }}>{item.label}</div>
-                  <div style={{ fontSize:12, color:'#586069', marginTop:4 }}>{item.desc}</div>
+                  <div style={{ fontSize:12, color:'#8da3c2', marginTop:4 }}>{item.desc}</div>
                 </div>
               ))}
             </div>
@@ -453,11 +534,11 @@ export default function DeepfakeDetectorApp() {
 
         {/* ── ERROR ── */}
         {stage === 'error' && (
-          <div style={{ background:'#0d1c35', border:'1px solid #ef4444', borderRadius:8, padding:32, textAlign:'center', animation:'fadeIn 0.3s ease' }}>
+          <div style={{ background:'#13294a', border:'1px solid #ef4444', borderRadius:8, padding:32, textAlign:'center', animation:'fadeIn 0.3s ease' }}>
             <AlertTriangle size={28} color="#ef4444" style={{ marginBottom:16 }} />
             <div style={{ fontSize:16, fontWeight:600, marginBottom:8 }}>Analysis failed</div>
             <div style={{ fontSize:14, color:'#8b949e', marginBottom:24 }}>{errorMsg}</div>
-            <button onClick={reset} style={{ background:'#1e2d4a', color:'#e6edf3', border:'none', borderRadius:5, padding:'10px 20px', fontSize:14, cursor:'pointer' }}>Try another file</button>
+            <button onClick={reset} style={{ background:'#234268', color:'#e6edf3', border:'none', borderRadius:5, padding:'10px 20px', fontSize:14, cursor:'pointer' }}>Try another file</button>
           </div>
         )}
 
@@ -469,13 +550,13 @@ export default function DeepfakeDetectorApp() {
             <VerdictHero result={result} />
 
             {/* File info bar */}
-            <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', background:'#0d1c35', border:'1px solid #1e2d4a', borderRadius:6, marginBottom:20, fontFamily:'monospace', fontSize:12, color:'#586069', flexWrap:'wrap' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', background:'#13294a', border:'1px solid #234268', borderRadius:6, marginBottom:20, fontFamily:'monospace', fontSize:12, color:'#8da3c2', flexWrap:'wrap' }}>
               {React.createElement(FILE_ICONS[result.file_type] || FileText, { size:13, color:'#00d4d4' })}
               <span style={{ color:'#e6edf3' }}>{result.filename}</span>
               <span>·</span><span>{result.file_type}</span>
               <span>·</span><span>{formatBytes(result.metadata?.size_bytes)}</span>
               <span>·</span><span>Job {result.job_id}</span>
-              {result.fusion_mode && <><span>·</span><span style={{ color:'#3d5070' }}>{result.fusion_mode}</span></>}
+              {result.fusion_mode && <><span>·</span><span style={{ color:'#5a7299' }}>{result.fusion_mode}</span></>}
             </div>
 
             {/* Stage breakdown with explanations */}
@@ -484,12 +565,12 @@ export default function DeepfakeDetectorApp() {
             {/* Flagged indicators */}
             {result.indicators?.length > 0 && (
               <div style={{ marginBottom:20 }}>
-                <h3 style={{ fontSize:12, color:'#586069', letterSpacing:1, textTransform:'uppercase', marginBottom:12 }}>
+                <h3 style={{ fontSize:12, color:'#8da3c2', letterSpacing:1, textTransform:'uppercase', marginBottom:12 }}>
                   Flagged indicators ({result.indicators.length})
                 </h3>
-                <div style={{ background:'#0d1c35', border:'1px solid #1e2d4a', borderRadius:6, overflow:'hidden' }}>
+                <div style={{ background:'#13294a', border:'1px solid #234268', borderRadius:6, overflow:'hidden' }}>
                   {result.indicators.map((ind, i) => (
-                    <div key={i} style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'10px 14px', fontSize:13, borderBottom: i < result.indicators.length-1 ? '1px solid #1e2d4a' : 'none' }}>
+                    <div key={i} style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'10px 14px', fontSize:13, borderBottom: i < result.indicators.length-1 ? '1px solid #234268' : 'none' }}>
                       <AlertTriangle size={13} color="#f59e0b" style={{ flexShrink:0, marginTop:1 }} />
                       <span style={{ color:'#c9d1d9', lineHeight:1.5 }}>{ind}</span>
                     </div>
@@ -504,11 +585,11 @@ export default function DeepfakeDetectorApp() {
             {/* Detailed metrics */}
             {result.stats?.length > 0 && (
               <div style={{ marginBottom:20 }}>
-                <h3 style={{ fontSize:12, color:'#586069', letterSpacing:1, textTransform:'uppercase', marginBottom:12 }}>Detailed metrics</h3>
+                <h3 style={{ fontSize:12, color:'#8da3c2', letterSpacing:1, textTransform:'uppercase', marginBottom:12 }}>Detailed metrics</h3>
                 <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:8 }}>
                   {result.stats.map((s, i) => (
-                    <div key={i} style={{ background:'#0d1c35', border:'1px solid #1e2d4a', borderRadius:6, padding:'10px 12px' }}>
-                      <div style={{ fontSize:10, color:'#586069', marginBottom:3 }}>{s.label}</div>
+                    <div key={i} style={{ background:'#13294a', border:'1px solid #234268', borderRadius:6, padding:'10px 12px' }}>
+                      <div style={{ fontSize:10, color:'#8da3c2', marginBottom:3 }}>{s.label}</div>
                       <div style={{ fontFamily:'monospace', fontSize:13, color:'#e6edf3' }}>{s.value}</div>
                     </div>
                   ))}
@@ -518,14 +599,14 @@ export default function DeepfakeDetectorApp() {
 
             {/* File evidence */}
             <div>
-              <h3 style={{ fontSize:12, color:'#586069', letterSpacing:1, textTransform:'uppercase', marginBottom:12 }}>
+              <h3 style={{ fontSize:12, color:'#8da3c2', letterSpacing:1, textTransform:'uppercase', marginBottom:12 }}>
                 <Lock size={11} style={{ display:'inline', marginRight:5, verticalAlign:-1 }} /> File evidence
               </h3>
-              <div style={{ background:'#0d1c35', border:'1px solid #1e2d4a', borderRadius:6, padding:14, fontFamily:'monospace', fontSize:11, color:'#586069', lineHeight:2 }}>
-                <div><span style={{ color:'#3d5070', marginRight:8 }}>MD5</span>{result.metadata?.md5}</div>
-                <div><span style={{ color:'#3d5070', marginRight:8 }}>SHA256</span>{result.metadata?.sha256}</div>
-                <div><span style={{ color:'#3d5070', marginRight:8 }}>MIME</span>{result.metadata?.mime}</div>
-                <div><span style={{ color:'#3d5070', marginRight:8 }}>TIME</span>{result.metadata?.analyzed_at}</div>
+              <div style={{ background:'#13294a', border:'1px solid #234268', borderRadius:6, padding:14, fontFamily:'monospace', fontSize:11, color:'#8da3c2', lineHeight:2 }}>
+                <div><span style={{ color:'#5a7299', marginRight:8 }}>MD5</span>{result.metadata?.md5}</div>
+                <div><span style={{ color:'#5a7299', marginRight:8 }}>SHA256</span>{result.metadata?.sha256}</div>
+                <div><span style={{ color:'#5a7299', marginRight:8 }}>MIME</span>{result.metadata?.mime}</div>
+                <div><span style={{ color:'#5a7299', marginRight:8 }}>TIME</span>{result.metadata?.analyzed_at}</div>
               </div>
             </div>
 
