@@ -1,10 +1,24 @@
 'use client';
 
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Upload, FileImage, FileVideo, FileAudio, FileText, Download,
          AlertTriangle, ShieldAlert, Loader2, ChevronRight, Lock, X } from 'lucide-react';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'https://dfd-back-exc0.onrender.com';
+
+// ── Auth ───────────────────────────────────────────────────────────────────
+// Backend v6.0 requires a JWT (or API key) on /analyze, /graph, /report, /jobs.
+// Token is persisted in localStorage so a page refresh doesn't force re-login —
+// this is a real deployed app (not a Claude artifact sandbox), so localStorage
+// is the normal, correct choice here.
+const AUTH_STORAGE_KEY = 'darpan_auth';
+
+async function authFetch(path, token, options = {}) {
+  return fetch(`${API_BASE_URL}${path}`, {
+    ...options,
+    headers: { ...(options.headers || {}), Authorization: `Bearer ${token}` },
+  });
+}
 
 // ── Surface elevation tokens ──────────────────────────────────────────────────
 // Previously page bg (#070f1f) and card bg (#13294a) were only ~3 points apart in
@@ -139,7 +153,7 @@ function ScanningPanel({ fileName }) {
 }
 
 // ── Dominant score display (replaces ScoreGauge) ──────────────────────────────
-function VerdictHero({ result }) {
+function VerdictHero({ result, authToken }) {
   // Prefer new classification fields; fall back to legacy for older responses.
   // When backend sets editing_detected=true on a REAL result, promote to REAL_EDITED
   // for display purposes only — the underlying classification field stays 'REAL'.
@@ -238,7 +252,27 @@ function VerdictHero({ result }) {
             </div>
           )}
           <div style={{ display:'flex', gap:8, marginTop:16 }}>
-            <button onClick={() => window.open(`${API_BASE_URL}/report/${result.job_id}`, '_blank')}
+            <button
+              onClick={async () => {
+                // /report/{job_id} is now auth-gated (v6.0) — window.open() can't
+                // carry an Authorization header, so fetch as a blob and trigger
+                // a download manually instead.
+                try {
+                  const res = await authFetch(`/report/${result.job_id}`, authToken);
+                  if (!res.ok) throw new Error(`Server returned ${res.status}`);
+                  const blob = await res.blob();
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `deepfake_report_${result.job_id}.pdf`;
+                  document.body.appendChild(a);
+                  a.click();
+                  a.remove();
+                  URL.revokeObjectURL(url);
+                } catch (err) {
+                  alert(`Could not download report: ${err.message}`);
+                }
+              }}
               style={{ background:'#00d4d4', color:'#070f1f', border:'none', borderRadius:5, padding:'9px 16px', fontSize:13, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', gap:6 }}>
               <Download size={13} /> PDF Report
             </button>
@@ -335,13 +369,47 @@ function Lightbox({ src, onClose }) {
 }
 
 // ── Graphs grid ───────────────────────────────────────────────────────────────
-function GraphsGrid({ graphs, jobId }) {
+function GraphsGrid({ graphs, jobId, authToken }) {
   const [lightbox, setLightbox] = useState(null);
+  const [blobUrls, setBlobUrls] = useState({});
+
+  // /graph/{job_id}/{filename} is now auth-gated (v6.0) — a plain <img src=...>
+  // can't carry an Authorization header, so each graph is fetched here as an
+  // authenticated request and converted to a local blob: URL instead.
+  useEffect(() => {
+    if (!graphs?.length || !jobId || !authToken) return;
+    let cancelled = false;
+    const createdUrls = [];
+
+    (async () => {
+      for (const g of graphs) {
+        if (!g.filename) continue;
+        try {
+          const res = await authFetch(`/graph/${jobId}/${g.filename}`, authToken);
+          if (!res.ok || cancelled) continue;
+          const blob = await res.blob();
+          if (cancelled) return;
+          const url = URL.createObjectURL(blob);
+          createdUrls.push(url);
+          setBlobUrls(prev => ({ ...prev, [g.filename]: url }));
+        } catch {
+          // one graph failing to load shouldn't break the rest of the page —
+          // it just stays in the "[ loading ]" state below
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      createdUrls.forEach(u => URL.revokeObjectURL(u));
+    };
+  }, [graphs, jobId, authToken]);
+
   if (!graphs?.length) return null;
 
   const getSrc = (g) => {
-    if (g.filename && jobId) return `${API_BASE_URL}/graph/${jobId}/${g.filename}`;
-    if (g.image_b64)         return `data:image/png;base64,${g.image_b64}`;
+    if (g.filename && blobUrls[g.filename]) return blobUrls[g.filename];
+    if (g.image_b64)                        return `data:image/png;base64,${g.image_b64}`;
     return null;
   };
 
@@ -377,6 +445,64 @@ function GraphsGrid({ graphs, jobId }) {
   );
 }
 
+// ── Auth gate ──────────────────────────────────────────────────────────────
+function AuthGate({ onAuth }) {
+  const [mode, setMode]       = useState('login'); // 'login' | 'signup'
+  const [email, setEmail]     = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError]     = useState('');
+  const [busy, setBusy]       = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setError(''); setBusy(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/auth/${mode}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || `Server returned ${res.status}`);
+      onAuth(data.access_token, email);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={{ minHeight:'100vh', background:'#070f1f', color:'#e6edf3', display:'flex', alignItems:'center', justifyContent:'center', fontFamily:"'Inter', -apple-system, sans-serif" }}>
+      <form onSubmit={submit} style={{ background:'#13294a', border:'1px solid #234268', borderRadius:8, padding:32, width:320 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:20 }}>
+          <ShieldAlert size={20} color="#00d4d4" />
+          <div>
+            <div style={{ fontSize:9, fontWeight:600, color:'#00d4d4', letterSpacing:2, textTransform:'uppercase' }}>AlgorivX.AI</div>
+            <div style={{ fontWeight:800, fontSize:18, color:'#e6edf3' }}>Darpan</div>
+          </div>
+        </div>
+        <h2 style={{ fontSize:16, fontWeight:600, marginBottom:16 }}>{mode === 'login' ? 'Log in' : 'Create account'}</h2>
+        <input type="email" placeholder="Email" value={email} required
+          onChange={e => setEmail(e.target.value)}
+          style={{ width:'100%', padding:'10px 12px', marginBottom:10, background:'#0f213d', border:'1px solid #234268', borderRadius:5, color:'#e6edf3', fontSize:14 }} />
+        <input type="password" placeholder="Password" value={password} required minLength={8}
+          onChange={e => setPassword(e.target.value)}
+          style={{ width:'100%', padding:'10px 12px', marginBottom:14, background:'#0f213d', border:'1px solid #234268', borderRadius:5, color:'#e6edf3', fontSize:14 }} />
+        {error && <div style={{ color:'#ef4444', fontSize:12, marginBottom:12 }}>{error}</div>}
+        <button type="submit" disabled={busy} style={{ width:'100%', background:'#00d4d4', color:'#070f1f', border:'none', borderRadius:5, padding:'11px', fontSize:14, fontWeight:700, cursor:busy ? 'default' : 'pointer', marginBottom:10, opacity:busy?0.7:1 }}>
+          {busy ? 'Please wait…' : (mode === 'login' ? 'Log in' : 'Sign up')}
+        </button>
+        <div style={{ textAlign:'center', fontSize:12, color:'#8da3c2' }}>
+          {mode === 'login'
+            ? <>No account? <span style={{ color:'#00d4d4', cursor:'pointer' }} onClick={() => { setMode('signup'); setError(''); }}>Sign up</span></>
+            : <>Have an account? <span style={{ color:'#00d4d4', cursor:'pointer' }} onClick={() => { setMode('login'); setError(''); }}>Log in</span></>}
+        </div>
+      </form>
+    </div>
+  );
+}
+
 // ── Main app ──────────────────────────────────────────────────────────────────
 export default function DeepfakeDetectorApp() {
   const [stage, setStage]       = useState('upload');
@@ -387,6 +513,35 @@ export default function DeepfakeDetectorApp() {
   const [dragActive, setDragActive] = useState(false);
   const fileInputRef       = useRef(null);
   const progressIntervalRef = useRef(null);
+
+  const [authToken, setAuthToken] = useState(null);
+  const [userEmail, setUserEmail] = useState('');
+  const [authLoaded, setAuthLoaded] = useState(false);
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(AUTH_STORAGE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        setAuthToken(parsed.token);
+        setUserEmail(parsed.email);
+      }
+    } catch { /* corrupted or absent — treat as logged out */ }
+    setAuthLoaded(true);
+  }, []);
+
+  const handleAuth = (token, email) => {
+    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ token, email }));
+    setAuthToken(token);
+    setUserEmail(email);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem(AUTH_STORAGE_KEY);
+    setAuthToken(null);
+    setUserEmail('');
+    setStage('upload'); setFile(null); setProgress(0); setResult(null); setErrorMsg('');
+  };
 
   const handleFileSelect = useCallback((f) => { if (f) setFile(f); }, []);
   const handleDrag = (e) => {
@@ -408,15 +563,60 @@ export default function DeepfakeDetectorApp() {
     try {
       const fd = new FormData();
       fd.append('file', file);
-      const res = await fetch(`${API_BASE_URL}/analyze`, {
+      const res = await authFetch('/analyze', authToken, {
         method:'POST', headers:{'ngrok-skip-browser-warning':'true'}, body:fd,
       });
+
+      if (res.status === 401) { clearInterval(progressIntervalRef.current); handleLogout(); return; }
+      if (res.status === 429) {
+        const q = await res.json().catch(() => ({}));
+        clearInterval(progressIntervalRef.current);
+        setErrorMsg(q.detail || 'Monthly analysis quota exceeded. Upgrade your plan to continue.');
+        setStage('error');
+        return;
+      }
       if (!res.ok) throw new Error(`Server returned ${res.status}`);
-      const data = await res.json();
-      clearInterval(progressIntervalRef.current);
-      setProgress(100);
-      if (data.error) { setTimeout(() => { setErrorMsg(data.error); setStage('error'); }, 400); return; }
-      setTimeout(() => { setResult(data); setStage('results'); }, 500);
+
+      const queued = await res.json();
+      const jobId = queued.job_id;
+
+      // v6.0: /analyze returns immediately with a job_id — the actual pipeline
+      // run happens async in the backend. Poll GET /jobs/{job_id} until it's
+      // done or failed (5-minute ceiling, matching Render's own request limits).
+      const POLL_MS = 2000;
+      const MAX_ATTEMPTS = 150;
+      let attempt = 0, finished = false;
+
+      while (!finished && attempt < MAX_ATTEMPTS) {
+        await new Promise(r => setTimeout(r, POLL_MS));
+        attempt++;
+
+        const statusRes = await authFetch(`/jobs/${jobId}`, authToken);
+        if (statusRes.status === 401) { clearInterval(progressIntervalRef.current); handleLogout(); return; }
+        if (!statusRes.ok) continue; // transient network/server hiccup — keep polling
+
+        const statusData = await statusRes.json();
+
+        if (statusData.status === 'done') {
+          finished = true;
+          clearInterval(progressIntervalRef.current);
+          setProgress(100);
+          const finalResult = { ...statusData.result, job_id: jobId };
+          setTimeout(() => { setResult(finalResult); setStage('results'); }, 400);
+        } else if (statusData.status === 'failed') {
+          finished = true;
+          clearInterval(progressIntervalRef.current);
+          setErrorMsg(statusData.error || 'Analysis failed on the server.');
+          setStage('error');
+        }
+        // else: still 'queued' or 'running' — loop continues
+      }
+
+      if (!finished) {
+        clearInterval(progressIntervalRef.current);
+        setErrorMsg(`Analysis is taking longer than expected and may still complete. Job ID: ${jobId}`);
+        setStage('error');
+      }
     } catch (err) {
       clearInterval(progressIntervalRef.current);
       setErrorMsg(`Could not reach the analysis server. It may be waking up — please wait 60 seconds and try again. (${err.message})`);
@@ -425,6 +625,9 @@ export default function DeepfakeDetectorApp() {
   };
 
   const reset = () => { setStage('upload'); setFile(null); setProgress(0); setResult(null); setErrorMsg(''); };
+
+  if (!authLoaded) return null; // avoid a flash of the login form while localStorage is checked
+  if (!authToken) return <AuthGate onAuth={handleAuth} />;
 
   return (
     <div style={{ minHeight:'100vh', background:'#070f1f', color:'#e6edf3', fontFamily:"'Inter', -apple-system, sans-serif", position:'relative' }}>
@@ -463,8 +666,8 @@ export default function DeepfakeDetectorApp() {
         </div>
         <div style={{ display:'flex', alignItems:'center', gap:14, fontSize:13, color:'#8b949e' }}>
           {result && <button onClick={reset} style={{ background:'transparent', color:'#8b949e', border:'1px solid #234268', borderRadius:5, padding:'7px 12px', fontSize:12, cursor:'pointer' }}>New analysis</button>}
-          <span>Pro Plan</span>
-          <div style={{ width:28, height:28, borderRadius:'50%', background:'#234268', display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:600 }}>U</div>
+          <span style={{ fontSize:12 }}>{userEmail}</span>
+          <button onClick={handleLogout} style={{ background:'transparent', color:'#8b949e', border:'1px solid #234268', borderRadius:5, padding:'7px 12px', fontSize:12, cursor:'pointer' }}>Log out</button>
         </div>
       </header>
 
@@ -547,7 +750,7 @@ export default function DeepfakeDetectorApp() {
           <div style={{ animation:'fadeIn 0.4s ease' }}>
 
             {/* Verdict hero — dominant classification */}
-            <VerdictHero result={result} />
+            <VerdictHero result={result} authToken={authToken} />
 
             {/* File info bar */}
             <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', background:'#13294a', border:'1px solid #234268', borderRadius:6, marginBottom:20, fontFamily:'monospace', fontSize:12, color:'#8da3c2', flexWrap:'wrap' }}>
@@ -580,7 +783,7 @@ export default function DeepfakeDetectorApp() {
             )}
 
             {/* Visual analysis graphs */}
-            <GraphsGrid graphs={result.graphs} jobId={result.job_id} />
+            <GraphsGrid graphs={result.graphs} jobId={result.job_id} authToken={authToken} />
 
             {/* Detailed metrics */}
             {result.stats?.length > 0 && (
