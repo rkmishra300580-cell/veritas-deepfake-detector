@@ -6,7 +6,7 @@ import { Upload, FileImage, FileVideo, FileAudio, FileText, Download,
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'https://dfd-back-exc0.onrender.com';
 
-// ── Auth ────────── ─────────────────────────────────────────────────────────
+// ── Auth ───────────────────────────────────────────────────────────────────
 // Backend v6.0 requires a JWT (or API key) on /analyze, /graph, /report, /jobs.
 // Token is persisted in localStorage so a page refresh doesn't force re-login —
 // this is a real deployed app (not a Claude artifact sandbox), so localStorage
@@ -479,7 +479,10 @@ function BillingModal({ authToken, currentPlan, onClose }) {
         {currentPlan && (
           <div style={{ fontSize:12, color:'#8da3c2', marginBottom:16 }}>
             Current plan: <strong style={{ color:'#e6edf3' }}>{currentPlan.plan}</strong>
-            {' — '}{currentPlan.used_this_period}/{currentPlan.monthly_quota} analyses used this period
+            {' — '}
+            {currentPlan.monthly_quota > 100000
+              ? 'unlimited analyses'
+              : `${Math.max(0, currentPlan.monthly_quota - currentPlan.used_this_period)}/${currentPlan.monthly_quota} analyses left this period`}
           </div>
         )}
 
@@ -712,6 +715,11 @@ export default function DeepfakeDetectorApp() {
       const queued = await res.json();
       const jobId = queued.job_id;
 
+      // Backend records usage the moment the job is created (see main.py's
+      // /analyze -> record_usage call), not when the analysis finishes — so
+      // refresh the badge now, not after polling completes.
+      refreshSubscription(authToken);
+
       // v6.0: /analyze returns immediately with a job_id — the actual pipeline
       // run happens async in the backend. Poll GET /jobs/{job_id} until it's
       // done or failed (5-minute ceiling, matching Render's own request limits).
@@ -800,7 +808,9 @@ export default function DeepfakeDetectorApp() {
           {result && <button onClick={reset} style={{ background:'transparent', color:'#8b949e', border:'1px solid #234268', borderRadius:5, padding:'7px 12px', fontSize:12, cursor:'pointer' }}>New analysis</button>}
           {subscription && (
             <span style={{ fontSize:11, color:'#8da3c2', border:'1px solid #234268', borderRadius:5, padding:'5px 10px' }}>
-              {subscription.plan} · {subscription.used_this_period}/{subscription.monthly_quota}
+              {subscription.plan} · {subscription.monthly_quota > 100000
+                ? 'unlimited'
+                : `${Math.max(0, subscription.monthly_quota - subscription.used_this_period)} left`}
             </span>
           )}
           <button onClick={() => setShowBillingModal(true)} style={{ background:'transparent', color:'#00d4d4', border:'1px solid #00d4d4', borderRadius:5, padding:'7px 12px', fontSize:12, cursor:'pointer', fontWeight:600 }}>Upgrade</button>
