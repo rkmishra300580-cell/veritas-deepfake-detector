@@ -445,6 +445,75 @@ function GraphsGrid({ graphs, jobId, authToken }) {
   );
 }
 
+// ── Billing modal ──────────────────────────────────────────────────────────
+function BillingModal({ authToken, currentPlan, onClose }) {
+  const [busyPlan, setBusyPlan] = useState(null); // which plan button is loading
+  const [error, setError] = useState('');
+
+  const PLANS = [
+    { id: 'monthly', name: 'Monthly', price: 'Contact for pricing', blurb: 'Higher analysis quota for regular use.' },
+    { id: 'enterprise', name: 'Enterprise', price: 'Contact for pricing', blurb: 'For teams and high-volume insurance workflows.' },
+  ];
+
+  const subscribe = async (planId) => {
+    setError(''); setBusyPlan(planId);
+    try {
+      const res = await authFetch(`/billing/checkout-session?plan=${planId}`, authToken, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || `Server returned ${res.status}`);
+      window.location.href = data.checkout_url; // hand off to Stripe-hosted Checkout
+    } catch (err) {
+      setError(err.message);
+      setBusyPlan(null);
+    }
+  };
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(7,15,31,0.75)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:100 }}>
+      <div style={{ background:'#13294a', border:'1px solid #234268', borderRadius:8, padding:28, width:420, maxWidth:'90vw' }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:18 }}>
+          <h2 style={{ fontSize:17, fontWeight:700, margin:0 }}>Upgrade plan</h2>
+          <button onClick={onClose} style={{ background:'transparent', border:'none', color:'#8b949e', cursor:'pointer' }}><X size={18} /></button>
+        </div>
+
+        {currentPlan && (
+          <div style={{ fontSize:12, color:'#8da3c2', marginBottom:16 }}>
+            Current plan: <strong style={{ color:'#e6edf3' }}>{currentPlan.plan}</strong>
+            {' — '}{currentPlan.used_this_period}/{currentPlan.monthly_quota} analyses used this period
+          </div>
+        )}
+
+        {PLANS.map(p => (
+          <div key={p.id} style={{ border:'1px solid #234268', borderRadius:6, padding:16, marginBottom:12 }}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline' }}>
+              <span style={{ fontWeight:700, fontSize:15 }}>{p.name}</span>
+              <span style={{ fontSize:13, color:'#8da3c2' }}>{p.price}</span>
+            </div>
+            <div style={{ fontSize:12, color:'#8da3c2', margin:'6px 0 12px' }}>{p.blurb}</div>
+            <button
+              onClick={() => subscribe(p.id)}
+              disabled={busyPlan !== null || currentPlan?.plan === p.id}
+              style={{
+                width:'100%', background: currentPlan?.plan === p.id ? '#234268' : '#00d4d4',
+                color: currentPlan?.plan === p.id ? '#8da3c2' : '#070f1f',
+                border:'none', borderRadius:5, padding:'9px', fontSize:13, fontWeight:700,
+                cursor: currentPlan?.plan === p.id ? 'default' : 'pointer',
+              }}>
+              {currentPlan?.plan === p.id ? 'Current plan' : (busyPlan === p.id ? 'Redirecting…' : `Subscribe to ${p.name}`)}
+            </button>
+          </div>
+        ))}
+
+        {error && <div style={{ color:'#ef4444', fontSize:12, marginTop:8 }}>{error}</div>}
+
+        <div style={{ fontSize:11, color:'#6b7f9e', marginTop:12 }}>
+          Payments are processed by Stripe in test mode — no real charge will occur.
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Auth gate ──────────────────────────────────────────────────────────────
 function AuthGate({ onAuth }) {
   const [mode, setMode]       = useState('login'); // 'login' | 'signup'
@@ -542,6 +611,35 @@ export default function DeepfakeDetectorApp() {
     setUserEmail('');
     setStage('upload'); setFile(null); setProgress(0); setResult(null); setErrorMsg('');
   };
+
+  // ── Billing ──────────────────────────────────────────────────────────────
+  const [subscription, setSubscription] = useState(null); // {plan, status, monthly_quota, used_this_period}
+  const [showBillingModal, setShowBillingModal] = useState(false);
+  const [billingBanner, setBillingBanner] = useState(null); // 'success' | 'cancel' | null
+
+  const refreshSubscription = useCallback(async (token) => {
+    try {
+      const res = await authFetch('/billing/subscription', token);
+      if (res.ok) setSubscription(await res.json());
+    } catch { /* non-fatal — plan/usage display just stays hidden */ }
+  }, []);
+
+  useEffect(() => {
+    if (authToken) refreshSubscription(authToken);
+  }, [authToken, refreshSubscription]);
+
+  // Stripe redirects back to '/?billing=success' or '/?billing=cancel' after Checkout
+  // (see billing.py — there's no separate /billing/success route in this single-page app).
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const billing = params.get('billing');
+    if (billing === 'success' || billing === 'cancel') {
+      setBillingBanner(billing);
+      window.history.replaceState({}, '', window.location.pathname); // strip the query param
+      if (billing === 'success' && authToken) refreshSubscription(authToken);
+    }
+  }, [authToken, refreshSubscription]);
 
   const handleFileSelect = useCallback((f) => { if (f) setFile(f); }, []);
   const handleDrag = (e) => {
@@ -666,10 +764,37 @@ export default function DeepfakeDetectorApp() {
         </div>
         <div style={{ display:'flex', alignItems:'center', gap:14, fontSize:13, color:'#8b949e' }}>
           {result && <button onClick={reset} style={{ background:'transparent', color:'#8b949e', border:'1px solid #234268', borderRadius:5, padding:'7px 12px', fontSize:12, cursor:'pointer' }}>New analysis</button>}
+          {subscription && (
+            <span style={{ fontSize:11, color:'#8da3c2', border:'1px solid #234268', borderRadius:5, padding:'5px 10px' }}>
+              {subscription.plan} · {subscription.used_this_period}/{subscription.monthly_quota}
+            </span>
+          )}
+          <button onClick={() => setShowBillingModal(true)} style={{ background:'transparent', color:'#00d4d4', border:'1px solid #00d4d4', borderRadius:5, padding:'7px 12px', fontSize:12, cursor:'pointer', fontWeight:600 }}>Upgrade</button>
           <span style={{ fontSize:12 }}>{userEmail}</span>
           <button onClick={handleLogout} style={{ background:'transparent', color:'#8b949e', border:'1px solid #234268', borderRadius:5, padding:'7px 12px', fontSize:12, cursor:'pointer' }}>Log out</button>
         </div>
       </header>
+
+      {billingBanner && (
+        <div style={{
+          maxWidth:960, margin:'12px auto 0', padding:'10px 16px', borderRadius:6, fontSize:13,
+          background: billingBanner === 'success' ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.10)',
+          color: billingBanner === 'success' ? '#34d399' : '#f87171',
+          border: `1px solid ${billingBanner === 'success' ? '#10b98155' : '#ef444455'}`,
+          display:'flex', justifyContent:'space-between', alignItems:'center',
+        }}>
+          <span>{billingBanner === 'success' ? 'Subscription updated — thanks!' : 'Checkout was cancelled — no changes made.'}</span>
+          <button onClick={() => setBillingBanner(null)} style={{ background:'transparent', border:'none', color:'inherit', cursor:'pointer' }}><X size={14} /></button>
+        </div>
+      )}
+
+      {showBillingModal && (
+        <BillingModal
+          authToken={authToken}
+          currentPlan={subscription}
+          onClose={() => { setShowBillingModal(false); refreshSubscription(authToken); }}
+        />
+      )}
 
       <main style={{ maxWidth:960, margin:'0 auto', padding:'40px 24px 60px', position:'relative', zIndex:1 }}>
 
