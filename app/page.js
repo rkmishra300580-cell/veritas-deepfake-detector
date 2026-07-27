@@ -567,6 +567,24 @@ function AuthGate({ onAuth }) {
             ? <>No account? <span style={{ color:'#00d4d4', cursor:'pointer' }} onClick={() => { setMode('signup'); setError(''); }}>Sign up</span></>
             : <>Have an account? <span style={{ color:'#00d4d4', cursor:'pointer' }} onClick={() => { setMode('login'); setError(''); }}>Log in</span></>}
         </div>
+
+        <div style={{ display:'flex', alignItems:'center', gap:10, margin:'18px 0' }}>
+          <div style={{ flex:1, height:1, background:'#234268' }} />
+          <span style={{ fontSize:11, color:'#6b7f9e' }}>OR</span>
+          <div style={{ flex:1, height:1, background:'#234268' }} />
+        </div>
+
+        {/* Full page navigation, not fetch — OAuth requires a real browser
+            redirect to the provider's own consent screen.
+            Facebook login is intentionally not offered here yet — app
+            registration was set aside for now. The backend route
+            (/auth/facebook/login in oauth.py) is still there and returns a
+            clean 503 if FACEBOOK_APP_ID isn't set, so re-adding this button
+            later needs zero backend changes. */}
+        <button type="button" onClick={() => { window.location.href = `${API_BASE_URL}/auth/google/login`; }}
+          style={{ width:'100%', background:'#0f213d', color:'#e6edf3', border:'1px solid #234268', borderRadius:5, padding:'10px', fontSize:13, fontWeight:600, cursor:'pointer' }}>
+          Continue with Google
+        </button>
       </form>
     </div>
   );
@@ -588,6 +606,22 @@ export default function DeepfakeDetectorApp() {
   const [authLoaded, setAuthLoaded] = useState(false);
 
   useEffect(() => {
+    // OAuth callback (oauth.py) redirects here with '#auth_token=...&auth_email=...' —
+    // fragments aren't sent to any server, so this is the only place that can read it.
+    try {
+      const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+      const oauthToken = hash.get('auth_token');
+      const oauthEmail = hash.get('auth_email');
+      if (oauthToken && oauthEmail) {
+        localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ token: oauthToken, email: oauthEmail }));
+        setAuthToken(oauthToken);
+        setUserEmail(oauthEmail);
+        window.history.replaceState({}, '', window.location.pathname + window.location.search);
+        setAuthLoaded(true);
+        return;
+      }
+    } catch { /* malformed fragment — fall through to localStorage */ }
+
     try {
       const stored = localStorage.getItem(AUTH_STORAGE_KEY);
       if (stored) {
