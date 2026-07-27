@@ -6,7 +6,7 @@ import { Upload, FileImage, FileVideo, FileAudio, FileText, Download,
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'https://dfd-back-exc0.onrender.com';
 
-// ── Auth ───────────────────────────────────────────────────────────────────
+// ── Auth ────────── ─────────────────────────────────────────────────────────
 // Backend v6.0 requires a JWT (or API key) on /analyze, /graph, /report, /jobs.
 // Token is persisted in localStorage so a page refresh doesn't force re-login —
 // this is a real deployed app (not a Claude artifact sandbox), so localStorage
