@@ -184,19 +184,30 @@ function VerdictHero({ result, authToken }) {
   // gap in one plain sentence, in non-technical language. Only shown when
   // the gap is meaningful (>8 points) — otherwise the headline already
   // tracks the dominant signal closely enough that an explanation adds noise.
+  const numericStages = result.stage_scores
+    ? Object.entries(result.stage_scores).filter(([k, v]) => typeof v === 'number' && STAGE_DISPLAY[k])
+    : [];
   let dominantExplain = null;
-  if (result.stage_scores) {
-    const numericStages = Object.entries(result.stage_scores)
-      .filter(([k, v]) => typeof v === 'number' && STAGE_DISPLAY[k]);
-    if (numericStages.length > 0) {
-      const [domKey, domVal] = numericStages.reduce((a, b) => (b[1] > a[1] ? b : a));
-      const gap = Math.abs(domVal - domScore);
-      if (gap > 8) {
-        const plainName = STAGE_PLAIN_NAME[domKey] || STAGE_DISPLAY[domKey];
-        dominantExplain = `This score combines several checks, not just one. The strongest single signal here was our ${plainName}, which was ${domVal.toFixed(0)}% confident. The other checks found weaker support, which brought the overall score to ${domScore.toFixed(0)}%.`;
-      }
+  if (numericStages.length > 0) {
+    const [domKey, domVal] = numericStages.reduce((a, b) => (b[1] > a[1] ? b : a));
+    const gap = Math.abs(domVal - domScore);
+    if (gap > 8) {
+      const plainName = STAGE_PLAIN_NAME[domKey] || STAGE_DISPLAY[domKey];
+      dominantExplain = `This score combines several checks, not just one. The strongest single signal here was our ${plainName}, which was ${domVal.toFixed(0)}% confident. The other checks found weaker support, which brought the overall score to ${domScore.toFixed(0)}%.`;
     }
   }
+
+  // ── verdict body, with the highlight/action sentences pulled out ────────
+  // result.verdict_highlight and result.recommended_action (when present)
+  // are both already embedded verbatim inside result.verdict (backend
+  // keeps 'verdict' as the full paragraph for PDF/plain-text consumers).
+  // On screen they get their own distinct, more visible treatment instead
+  // of sitting anonymously mid-paragraph, so they're stripped from the
+  // plain-paragraph body here to avoid showing the same sentence twice.
+  let verdictBody = result.verdict || '';
+  if (result.recommended_action) verdictBody = verdictBody.replace(result.recommended_action, '');
+  if (result.verdict_highlight)  verdictBody = verdictBody.replace(result.verdict_highlight, '');
+  verdictBody = verdictBody.replace(/\s+/g, ' ').trim();
 
   return (
     <div style={{
@@ -244,13 +255,57 @@ function VerdictHero({ result, authToken }) {
               ))}
             </div>
           )}
-          <p style={{ fontSize:14, lineHeight:1.7, margin:0, color:'#c9d1d9' }}>{result.verdict}</p>
+
+          {/* Highlight callout — the single most reassuring/important sentence
+              (currently only set for REAL (Edited): "real source, conventionally
+              altered, not AI"), pulled out of the paragraph and given its own
+              visual weight instead of being buried mid-sentence. */}
+          {result.verdict_highlight && (
+            <div style={{
+              marginBottom:12, padding:'10px 12px', borderRadius:6,
+              background:'rgba(16,185,129,0.06)', borderLeft:'3px solid #10b981',
+            }}>
+              <p style={{ fontSize:13.5, lineHeight:1.6, margin:0, color:'#c9d1d9', fontWeight:600 }}>
+                {result.verdict_highlight}
+              </p>
+            </div>
+          )}
+
+          <p style={{ fontSize:14, lineHeight:1.7, margin:0, color:'#c9d1d9' }}>{verdictBody}</p>
+
+          {/* Always-visible check count — cheap, true, and reads as more
+              rigorous than a bare percentage. Previously the only per-check
+              context shown was dominantExplain, and only when the gap
+              exceeded 8 points. */}
+          {numericStages.length > 0 && (
+            <p style={{ fontSize:12, color:'#5a7299', margin:'8px 0 0' }}>
+              Based on {numericStages.length} independent forensic checks — see breakdown below.
+            </p>
+          )}
+
           {dominantExplain && (
             <div style={{ marginTop:12, paddingTop:12, borderTop:'1px solid #234268', display:'flex', gap:8, alignItems:'flex-start' }}>
               <span style={{ fontSize:14, color:'#5a7299', lineHeight:1.6, flexShrink:0 }}>ⓘ</span>
               <p style={{ fontSize:13, lineHeight:1.6, margin:0, color:'#8da3c2' }}>{dominantExplain}</p>
             </div>
           )}
+
+          {/* Recommended next step — risk-scaled, from the backend
+              (helpers.py's _recommended_action_line). Absent entirely for
+              LOW risk (nothing to recommend beyond the verdict itself). */}
+          {result.recommended_action && (
+            <div style={{
+              marginTop:12, padding:'10px 12px', borderRadius:6,
+              background:'rgba(245,158,11,0.06)', border:'1px solid rgba(245,158,11,0.25)',
+              display:'flex', gap:8, alignItems:'flex-start',
+            }}>
+              <AlertTriangle size={14} color="#f59e0b" style={{ flexShrink:0, marginTop:1 }} />
+              <p style={{ fontSize:13, lineHeight:1.5, margin:0, color:'#e6c88a', fontWeight:600 }}>
+                {result.recommended_action}
+              </p>
+            </div>
+          )}
+
           <div style={{ display:'flex', gap:8, marginTop:16 }}>
             <button
               onClick={async () => {
